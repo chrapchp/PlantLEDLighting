@@ -97,8 +97,6 @@ typedef _AlarmEntry AlarmEntry;
 AlarmEntry lightsOnAlarm = { 4, 0, 0, dtINVALID_ALARM_ID };
 AlarmEntry lightsOffAlarm = { 23, 0, 0,  dtINVALID_ALARM_ID};
 
-
-
 void displayAlarm( char *who, struct _AlarmEntry aAlarmEntry)
 {
   *comPort << who << "id = " << aAlarmEntry.id << " set to "  << aAlarmEntry.hours ;
