@@ -15,8 +15,9 @@
  *  
  *
  */
-#include <Time.h>
 
+#include <Time.h>
+#include <HardwareSerial.h>
 #include <TimeLib.h>
 #include <TimeAlarms.h>
 #include <Streaming.h>
@@ -37,7 +38,7 @@
 
 
 // single character message tags
-#define TIME_HEADER   'T'   // Header tag for serial time sync message
+#define TIME_HEADER   'T'   // Header tag for Serial2 time sync message
 
 #define DISPLAY_HEADER   'D'   // Display header tag 
 #define DISPLAY_TIME   't'
@@ -79,6 +80,8 @@
 //   NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
 PlantLEDStrip strip1 = PlantLEDStrip(3 * 60 + 2 * 144  , STRIP_1_PIN, NEO_GRB + NEO_KHZ800);
 //PlantLEDStrip strip2 = PlantLEDStrip(60  , STRIP_2_PIN, NEO_GRB + NEO_KHZ800);
+//
+HardwareSerial *comPort = &Serial;
 int inputDutyCycle = 0;  // variable to store the value coming from the sensor
 
 
@@ -98,30 +101,30 @@ AlarmEntry lightsOffAlarm = { 23, 0, 0,  dtINVALID_ALARM_ID};
 
 void displayAlarm( char *who, struct _AlarmEntry aAlarmEntry)
 {
-  Serial << who << "id = " << aAlarmEntry.id << " set to "  << aAlarmEntry.hours ;
+  *comPort << who << "id = " << aAlarmEntry.id << " set to "  << aAlarmEntry.hours ;
   printDigits(aAlarmEntry.minutes );
   printDigits(aAlarmEntry.seconds );
-  Serial << endl;
+  *comPort << endl;
 }
 
 void onTT_100Sample( float aValue )
 {
-  Serial << "TT-100 = " << aValue << endl;
+  *comPort << "TT-100 = " << aValue << endl;
 }
 
 void onTT_100SampleDeadband( float aValue )
 {
-  Serial << "Deadband TT-100 = " << aValue << endl;
+  *comPort << "Deadband TT-100 = " << aValue << endl;
 }
 
 void onLSL_100Sample( bool aValue )
 {
-  Serial << "LSL_100 = " << aValue << endl;
+  *comPort << "LSL_100 = " << aValue << endl;
 }
 
 void onLSL_100EdgeDetect( bool state )
 {
-  Serial << "ToggleDetected=" << state << endl;
+  *comPort << "ToggleDetected=" << state << endl;
   alterLEDPattern();
 }
 
@@ -135,11 +138,11 @@ void alterLEDPattern()
 
 void setup()
 {
-  Serial.begin(9600);
+  comPort->begin(9600);
   randomSeed(analogRead(0));
   setSyncProvider( requestSync);  //set function to call when sync required
   showCommands();
-  Serial << "Enter Command:" << endl;
+  *comPort << "Enter Command:" << endl;
   setTime(7, 13, 00, 25, 4, 17);
   lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.hours, lightsOnAlarm.minutes, lightsOnAlarm.seconds, doLightsOn);
   displayAlarm("...Lights On Alarm", lightsOnAlarm );
@@ -165,9 +168,9 @@ void setup()
 
 void loop()
 {
-  //Serial << analogRead(POT_PIN);
+  //*comPort << analogRead(POT_PIN);
   // inputDutyCycle = map(analogRead(POT_PIN), 0, 1023, MIN_DUTY_CYCLE, MAX_DUTY_CYCLE);
-  //Serial << inputDutyCycle;
+  //*comPort << inputDutyCycle;
   strip1.refresh();
   //strip2.refresh();
   doCommandFromHostCheck();
@@ -179,11 +182,11 @@ void loop()
 
 void doCommandFromHostCheck()
 {
-  if (Serial.available() > 1)
+  if (comPort->available() > 1)
   {
     // wait for at least two characters
-    char c = Serial.read();
-    // Serial << c << endl;
+    char c = comPort->read();
+    // *comPort << c << endl;
     if ( c == TIME_HEADER)
     {
       processSyncMessage();
@@ -198,7 +201,7 @@ void doCommandFromHostCheck()
     }
     else if ( c == HELP_HEADER)
     {
-      Serial.read();
+      comPort->read();
       showCommands();
     }
     else if ( c == TIMER_ALARM_HEADER)
@@ -213,21 +216,21 @@ void doCommandFromHostCheck()
 
 void digitalClockDisplay()
 {
-  Serial << hour() ;
+  *comPort << hour() ;
   printDigits(minute());
   printDigits(second()) ;
-  Serial << " ";
-  Serial << dayStr(weekday()) << " " ;
-  Serial << monthShortStr(month()) << " ";
-  Serial << day() << " "  << year() << endl;
+  *comPort << " ";
+  *comPort << dayStr(weekday()) << " " ;
+  *comPort << monthShortStr(month()) << " ";
+  *comPort << day() << " "  << year() << endl;
 }
 
 void printDigits(int digits)
 {
-  Serial << ":";
+  *comPort << ":";
   if (digits < 10)
-    Serial << '0';
-  Serial << digits;
+    *comPort << '0';
+  *comPort << digits;
 }
 
 void displayTime()
@@ -240,7 +243,7 @@ void displayTime()
 
 void processDisplayMessage()
 {
-  char c = Serial.read();
+  char c = comPort->read();
   if ( c == DISPLAY_TIME)
   {
     displayTime();
@@ -252,20 +255,20 @@ void processDisplayMessage()
   }
   else if ( c == DISPLAY_DUTY_CYCLE)
   {
-    Serial << "Duty Cycle = " << strip1.getDutyCycle() << endl;
+    *comPort << "Duty Cycle = " << strip1.getDutyCycle() << endl;
   }
 }
 
 void processShowTime()
 {
-  char c = Serial.read();
+  char c = comPort->read();
   displayTime();
 }
 
 
 void processLightsMessage()
 {
-  char c = Serial.read();
+  char c = comPort->read();
   switch (c)
   {
   case LIGHTS_ON:
@@ -275,7 +278,7 @@ void processLightsMessage()
     doLightsOff();
     break;
   case LIGHTS_DUTY_CYCLE:
-    strip1.setDutyCycle( Serial.parseInt());
+    strip1.setDutyCycle( comPort->parseInt());
     break;
   case LIGHTS_RANDOM_DUTY_CYCLE_TIME:
     break;
@@ -286,23 +289,23 @@ void processLightsMessage()
 
 void processAlarmMessage()
 {
-  char c = Serial.read();
+  char c = comPort->read();
   if ( c == TIMER_ALARM_ON)
   {
     Alarm.free( lightsOnAlarm.id );
-    lightsOnAlarm.hours = Serial.parseInt(); //constrain(Serial.parseInt(), 0, 23);
-    lightsOnAlarm.minutes = Serial.parseInt(); //constrain(Serial.parseInt(), 0, 59);
-    lightsOnAlarm.seconds = Serial.parseInt(); // constrain(Serial.parseInt(), 0, 59);
+    lightsOnAlarm.hours = comPort->parseInt(); //constrain(comPort->parseInt(), 0, 23);
+    lightsOnAlarm.minutes = comPort->parseInt(); //constrain(comPort->parseInt(), 0, 59);
+    lightsOnAlarm.seconds = comPort->parseInt(); // constrain(comPort->parseInt(), 0, 59);
     lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.hours, lightsOnAlarm.minutes, lightsOnAlarm.seconds, doLightsOn);
     displayAlarm("Lights On Alarm", lightsOnAlarm );
-    // Serial << Serial.parseInt() << "-" << Serial.parseInt() << "-" << Serial.parseInt() << endl;
+    // *comPort << comPort->parseInt() << "-" << comPort->parseInt() << "-" << comPort->parseInt() << endl;
   }
   else if ( c == TIMER_ALARM_OFF)
   {
     Alarm.free( lightsOffAlarm.id );
-    lightsOffAlarm.hours = Serial.parseInt(); //constrain(Serial.parseInt(), 0, 23);
-    lightsOffAlarm.minutes = Serial.parseInt(); //constrain(Serial.parseInt(), 0, 59);
-    lightsOffAlarm.seconds = Serial.parseInt(); // constrain(Serial.parseInt(), 0, 59);
+    lightsOffAlarm.hours = comPort->parseInt(); //constrain(comPort->parseInt(), 0, 23);
+    lightsOffAlarm.minutes = comPort->parseInt(); //constrain(comPort->parseInt(), 0, 59);
+    lightsOffAlarm.seconds = comPort->parseInt(); // constrain(comPort->parseInt(), 0, 59);
     lightsOffAlarm.id = Alarm.alarmRepeat(lightsOffAlarm.hours, lightsOffAlarm.minutes, lightsOffAlarm.seconds, doLightsOff);
     displayAlarm("Lights Off Alarm", lightsOffAlarm );
   }
@@ -310,36 +313,36 @@ void processAlarmMessage()
 
 void showCommands()
 {
-  Serial << "Fs - Format time display short format" << endl;
-  Serial << "Fl - Format time display long format" << endl;
-  Serial << "Dt - Display Date/Time" << endl;
-  Serial << "Da - Display Alarms" << endl;
-  Serial << "T9999999999 - Set time using UNIX Epoch numner" << endl;
-  Serial << "A1HH:MM:SS - Set lights on time " << endl;
-  Serial << "A0HH:MM:SS  - Set lights off time " << endl;
-  Serial << "L1  - Lights On " << endl;
-  Serial << "L0  - Lights Off " << endl;
-  Serial << "Ld99 - Lighting duty cycle 99 From 60 to 90" << endl;
-  Serial << "Lr99999 - Lighting time to randomly change duty cycle in seconds" << endl;
-  Serial << "?? - Display commands" << endl;
+  *comPort << "Fs - Format time display short format" << endl;
+  *comPort << "Fl - Format time display long format" << endl;
+  *comPort << "Dt - Display Date/Time" << endl;
+  *comPort << "Da - Display Alarms" << endl;
+  *comPort << "T9999999999 - Set time using UNIX Epoch numner" << endl;
+  *comPort << "A1HH:MM:SS - Set lights on time " << endl;
+  *comPort << "A0HH:MM:SS  - Set lights off time " << endl;
+  *comPort << "L1  - Lights On " << endl;
+  *comPort << "L0  - Lights Off " << endl;
+  *comPort << "Ld99 - Lighting duty cycle 99 From 60 to 90" << endl;
+  *comPort << "Lr99999 - Lighting time to randomly change duty cycle in seconds" << endl;
+  *comPort << "?? - Display commands" << endl;
 }
 void processSyncMessage()
 {
   unsigned long pctime;
   const unsigned long DEFAULT_TIME = 1357041600; // Jan 1 2013 - paul, perhaps we define in time.h?
-  pctime = Serial.parseInt();
-  //Serial << pctime << endl;
+  pctime = comPort->parseInt();
+  //*comPort << pctime << endl;
   if ( pctime >= DEFAULT_TIME)   // check the integer is a valid time (greater than Jan 1 2013)
   {
-    setTime(pctime); // Sync Arduino clock to the time received on the serial port
+    setTime(pctime); // Sync Arduino clock to the time received on the Serial2 port
     displayTime();
   }
 }
 
 time_t requestSync()
 {
-  Serial.write(TIME_REQUEST);
-  return 0; // the time will be sent later in response to serial mesg
+  comPort->write(TIME_REQUEST);
+  return 0; // the time will be sent later in response to Serial2 mesg
 }
 
 
@@ -347,7 +350,7 @@ void doLightsOn()
 {
   strip1.turnOn();
   //strip2.turnOn();
-  Serial << "...Lights on" << endl;
+  *comPort << "...Lights on" << endl;
 }
 
 
@@ -355,7 +358,7 @@ void doLightsOff()
 {
   strip1.turnOff();
   //strip2.turnOff();
-  Serial << "...Lights off" << endl;
+  *comPort << "...Lights off" << endl;
 }
 
 
