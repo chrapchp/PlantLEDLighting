@@ -84,7 +84,7 @@
 PlantLEDStrip strip1 = PlantLEDStrip(3 * 60 + 2 * 144  , STRIP_1_PIN, NEO_GRB + NEO_KHZ800);
 //PlantLEDStrip strip2 = PlantLEDStrip(60  , STRIP_2_PIN, NEO_GRB + NEO_KHZ800);
 //
-HardwareSerial *comPort = &Serial;
+HardwareSerial *comPort = &Serial2;
 int inputDutyCycle = 0;  // variable to store the value coming from the sensor
 
 
