@@ -19,6 +19,8 @@
 #include <Time.h>
 #include <HardwareSerial.h>
 #include <TimeLib.h>
+#include <Wire.h>
+#include <DS3232RTC.h>    //http://github.com/JChristensen/DS3232RTC
 #include <TimeAlarms.h>
 #include <Streaming.h>
 
@@ -44,6 +46,7 @@
 #define DISPLAY_TIME   't'
 #define DISPLAY_ALARMS   'a'
 #define DISPLAY_DUTY_CYCLE 'd'
+
 
 #define TIMER_ALARM_HEADER  'A'    // Timer Alarm Header tag
 #define TIMER_ALARM_ON  '1'    // Timer Alarm On A14:00:00 -> turn on lights at 4AM
@@ -93,9 +96,19 @@ struct _AlarmEntry
   AlarmId id;
 } ;
 
+struct _AlarmIntervalEntry
+{
+  unsigned long interval;
+  AlarmId id;
+} ;
+
 typedef _AlarmEntry AlarmEntry;
+typedef _AlarmIntervalEntry AlarmIntervalEntry;
+
 AlarmEntry lightsOnAlarm = { 4, 0, 0, dtINVALID_ALARM_ID };
 AlarmEntry lightsOffAlarm = { 23, 0, 0,  dtINVALID_ALARM_ID};
+AlarmIntervalEntry dutyCycleChangeAlarm = { 60 * 60, dtINVALID_ALARM_ID};
+
 
 void displayAlarm( char *who, struct _AlarmEntry aAlarmEntry)
 {
@@ -138,15 +151,20 @@ void setup()
 {
   comPort->begin(9600);
   randomSeed(analogRead(0));
-  setSyncProvider( requestSync);  //set function to call when sync required
+  //setSyncProvider( requestSync);  //set function to call when sync required
+  setSyncProvider(RTC.get);  
+  //setSyncInterval(30);
+  if(timeStatus()!= timeSet) 
+     *comPort << "Unable to sync with the RTC" << endl;
+  else
+     *comPort << "RTC has set the system time" << endl;     
   showCommands();
   *comPort << "Enter Command:" << endl;
-  setTime(7, 13, 00, 25, 4, 17);
   lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.hours, lightsOnAlarm.minutes, lightsOnAlarm.seconds, doLightsOn);
   displayAlarm("...Lights On Alarm", lightsOnAlarm );
   lightsOffAlarm.id = Alarm.alarmRepeat(lightsOffAlarm.hours, lightsOffAlarm.minutes, lightsOffAlarm.seconds, doLightsOff);
   displayAlarm("...Lights Off Alarm", lightsOffAlarm );
-  Alarm.timerRepeat(60 * 60, alterLEDPattern);
+  dutyCycleChangeAlarm.id = Alarm.timerRepeat(dutyCycleChangeAlarm.interval, alterLEDPattern);
   strip1.initialize();
   //strip2.initialize();
   /*
@@ -250,11 +268,13 @@ void processDisplayMessage()
   {
     displayAlarm("...Lights On Alarm", lightsOnAlarm );
     displayAlarm("...Lights Off Alarm", lightsOffAlarm );
+    *comPort << "Duty Cycle Period = " << dutyCycleChangeAlarm.interval << " s" << endl;
   }
   else if ( c == DISPLAY_DUTY_CYCLE)
   {
     *comPort << "Duty Cycle = " << strip1.getDutyCycle() << endl;
   }
+
 }
 
 void processShowTime()
@@ -279,6 +299,10 @@ void processLightsMessage()
     strip1.setDutyCycle( comPort->parseInt());
     break;
   case LIGHTS_RANDOM_DUTY_CYCLE_TIME:
+    Alarm.free( dutyCycleChangeAlarm.id );
+      dutyCycleChangeAlarm.interval = comPort->parseInt();
+      dutyCycleChangeAlarm.id = Alarm.timerRepeat(dutyCycleChangeAlarm.interval, alterLEDPattern);
+      *comPort << "Duty cycle time set to " << dutyCycleChangeAlarm.interval << " s" << endl;
     break;
   default:
     break;
@@ -327,11 +351,12 @@ void showCommands()
 void processSyncMessage()
 {
   unsigned long pctime;
-  const unsigned long DEFAULT_TIME = 1357041600; // Jan 1 2013 - paul, perhaps we define in time.h?
+  const unsigned long DEFAULT_TIME = 976492800; 
   pctime = comPort->parseInt();
   //*comPort << pctime << endl;
   if ( pctime >= DEFAULT_TIME)   // check the integer is a valid time (greater than Jan 1 2013)
   {
+    RTC.set(pctime);   // set the RTC and the system time to the received value
     setTime(pctime); // Sync Arduino clock to the time received on the Serial2 port
     displayTime();
   }
