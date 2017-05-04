@@ -1,43 +1,43 @@
+#include <SerialModbusSlave.h>
 
-/** 
+/**
  *  @file    planttestNG.ino
  *  @author  peter c
- *  @date    4/14/2017  
+ *  @date    4/14/2017
  *  @version 0.1
- *  
+ *
  *
  *  @section DESCRIPTION
  *  Control LED strip lighting used for plants. LED strip is mostly red with some blue light. Ratio
  *  set via dutycycle between 60 and 90%. Lights turn off and on at a predetermined interval.
- *  
- *  TODO- xbee integration next to feed into data collection system. 
+ *
+ *  TODO- xbee integration next to feed into data collection system.
  *  Hydroponic integration - temperature, humidity, pH control, water cycles
- *  
+ *
  *
  */
 
-#include <Time.h>
+
 #include <HardwareSerial.h>
 #include <TimeLib.h>
+#include <Timezone.h>    //https://github.com/JChristensen/Timezone
 #include <Wire.h>
 #include <DS3232RTC.h>    //http://github.com/JChristensen/DS3232RTC
+
+
+
 #include <TimeAlarms.h>
 #include <Streaming.h>
 
+#include "PlantModbus.h"
 #include "PlantLED.h"
 #include "DA_Analoginput.h"
 #include "DA_Discreteinput.h"
 
 #define STRIP_1_PIN 6
-#define STRIP_2_PIN 5
-
 
 #define MIN_DUTY_CYCLE 20
 #define MAX_DUTY_CYCLE 90
-
-#define POT_PIN  A3
-
-
 
 // single character message tags
 #define TIME_HEADER   'T'   // Header tag for Serial2 time sync message
@@ -62,11 +62,11 @@
 #define LIGHTS_DUTY_CYCLE 'd'     // Ld60 -> 60% dominant color default mostly red 60-90 percent allowed
 #define LIGHTS_RANDOM_DUTY_CYCLE_TIME 'r' // Lr3600 -> change the duty cycle between 60-90 % every hour
 
-#define TIME_REQUEST  7     // ASCII bell character requests a time sync message 
+
 //#define HOST_COMMAND_CHECK_INTERVAL  1000
 #define LIGHT_REFRESH_INTERVAL  100
 
-
+const unsigned long DEFAULT_TIME = 976492800;
 
 
 //DA_AnalogInput TT_100 = DA_AnalogInput(  A4, -40.0, 40.0 );
@@ -74,19 +74,14 @@
 
 
 
-// Parameter 1 = number of pixels in strip
-// Parameter 2 = pin number (most are valid)
-// Parameter 3 = pixel type flags, add together as needed:
-//   NEO_KHZ800  800 KHz bitstream (most NeoPixel products w/WS2812 LEDs)
-//   NEO_KHZ400  400 KHz (classic 'v1' (not v2) FLORA pixels, WS2811 drivers)
-//   NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
-//   NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
 PlantLEDStrip strip1 = PlantLEDStrip(3 * 60 + 2 * 144  , STRIP_1_PIN, NEO_GRB + NEO_KHZ800);
 //PlantLEDStrip strip2 = PlantLEDStrip(60  , STRIP_2_PIN, NEO_GRB + NEO_KHZ800);
-//
-HardwareSerial *comPort = &Serial2;
-int inputDutyCycle = 0;  // variable to store the value coming from the sensor
 
+HardwareSerial *tracePort = &Serial2;
+
+TimeChangeRule usMDT = {"MDT", Second, dowSunday, Mar, 2, -360};
+TimeChangeRule usMST = {"MST", First, dowSunday, Nov, 2, -420};
+Timezone usMT(usMDT, usMST);
 
 struct _AlarmEntry
 {
@@ -105,37 +100,37 @@ struct _AlarmIntervalEntry
 typedef _AlarmEntry AlarmEntry;
 typedef _AlarmIntervalEntry AlarmIntervalEntry;
 
-AlarmEntry lightsOnAlarm = { 4, 0, 0, dtINVALID_ALARM_ID };
-AlarmEntry lightsOffAlarm = { 23, 0, 0,  dtINVALID_ALARM_ID};
+AlarmEntry lightsOnAlarm = { 11, 0, 0, dtINVALID_ALARM_ID };
+AlarmEntry lightsOffAlarm = { 4, 0, 0,  dtINVALID_ALARM_ID};
 AlarmIntervalEntry dutyCycleChangeAlarm = { 60 * 60, dtINVALID_ALARM_ID};
 
 
 void displayAlarm( char *who, struct _AlarmEntry aAlarmEntry)
 {
-  *comPort << who << "id = " << aAlarmEntry.id << " set to "  << aAlarmEntry.hours ;
+  *tracePort << who << "id = " << aAlarmEntry.id << " set to "  << aAlarmEntry.hours ;
   printDigits(aAlarmEntry.minutes );
   printDigits(aAlarmEntry.seconds );
-  *comPort << endl;
+  *tracePort << endl;
 }
 
 void onTT_100Sample( float aValue )
 {
-  *comPort << "TT-100 = " << aValue << endl;
+  *tracePort << "TT-100 = " << aValue << endl;
 }
 
 void onTT_100SampleDeadband( float aValue )
 {
-  *comPort << "Deadband TT-100 = " << aValue << endl;
+  *tracePort << "Deadband TT-100 = " << aValue << endl;
 }
 
 void onLSL_100Sample( bool aValue )
 {
-  *comPort << "LSL_100 = " << aValue << endl;
+  *tracePort << "LSL_100 = " << aValue << endl;
 }
 
 void onLSL_100EdgeDetect( bool state )
 {
-  *comPort << "ToggleDetected=" << state << endl;
+  *tracePort << "ToggleDetected=" << state << endl;
   alterLEDPattern();
 }
 
@@ -149,17 +144,21 @@ void alterLEDPattern()
 
 void setup()
 {
-  comPort->begin(9600);
+  tracePort->begin(9600);
+  slave.begin( 19200 );
   randomSeed(analogRead(0));
   //setSyncProvider( requestSync);  //set function to call when sync required
-  setSyncProvider(RTC.get);  
+  setSyncProvider(RTC.get);
   //setSyncInterval(30);
-  if(timeStatus()!= timeSet) 
-     *comPort << "Unable to sync with the RTC" << endl;
+  if (timeStatus() != timeSet)
+  {
+    *tracePort << F("Unable to sync with the RTC") << endl;
+    // setTime(DEFAULT_TIME);
+  }
   else
-     *comPort << "RTC has set the system time" << endl;     
+    *tracePort << F("RTC has set the system time") << endl;
   showCommands();
-  *comPort << "Enter Command:" << endl;
+  *tracePort << F("Enter Command:") << endl;
   lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.hours, lightsOnAlarm.minutes, lightsOnAlarm.seconds, doLightsOn);
   displayAlarm("...Lights On Alarm", lightsOnAlarm );
   lightsOffAlarm.id = Alarm.alarmRepeat(lightsOffAlarm.hours, lightsOffAlarm.minutes, lightsOffAlarm.seconds, doLightsOff);
@@ -184,10 +183,13 @@ void setup()
 
 void loop()
 {
-  //*comPort << analogRead(POT_PIN);
+  //*tracePort << analogRead(POT_PIN);
   // inputDutyCycle = map(analogRead(POT_PIN), 0, 1023, MIN_DUTY_CYCLE, MAX_DUTY_CYCLE);
-  //*comPort << inputDutyCycle;
+  //*tracePort << inputDutyCycle;
   strip1.refresh();
+  refreshModbusRegisters();
+  slave.poll( modbusRegisters, MODBUS_REG_COUNT );
+  processModbusCommands();
   //strip2.refresh();
   doCommandFromHostCheck();
   Alarm.delay(LIGHT_REFRESH_INTERVAL);
@@ -196,13 +198,14 @@ void loop()
 }
 
 
+
 void doCommandFromHostCheck()
 {
-  if (comPort->available() > 1)
+  if (tracePort->available() > 1)
   {
     // wait for at least two characters
-    char c = comPort->read();
-    // *comPort << c << endl;
+    char c = tracePort->read();
+    // *tracePort << c << endl;
     if ( c == TIME_HEADER)
     {
       processSyncMessage();
@@ -217,7 +220,7 @@ void doCommandFromHostCheck()
     }
     else if ( c == HELP_HEADER)
     {
-      comPort->read();
+      tracePort->read();
       showCommands();
     }
     else if ( c == TIMER_ALARM_HEADER)
@@ -228,25 +231,40 @@ void doCommandFromHostCheck()
 }
 
 
-
+void printDateTime( time_t aTime , char *timeZone)
+{
+  *tracePort << hour(aTime) ;
+  printDigits(minute(aTime));
+  printDigits(second(aTime)) ;
+  *tracePort << " " << timeZone << " ";
+  *tracePort << dayStr(weekday(aTime)) << " " ;
+  *tracePort << monthShortStr(month(aTime)) << " ";
+  *tracePort << day(aTime) << " "  << year(aTime) << endl;
+}
 
 void digitalClockDisplay()
 {
-  *comPort << hour() ;
+  *tracePort << hour() ;
   printDigits(minute());
   printDigits(second()) ;
-  *comPort << " ";
-  *comPort << dayStr(weekday()) << " " ;
-  *comPort << monthShortStr(month()) << " ";
-  *comPort << day() << " "  << year() << endl;
+  *tracePort << " ";
+  *tracePort << dayStr(weekday()) << " " ;
+  *tracePort << monthShortStr(month()) << " ";
+  *tracePort << day() << " "  << year() << endl;
+  TimeChangeRule *tcr;        //pointer to the time change rule, use to get the TZ abbrev
+  time_t atime;
+  atime = now();
+  printDateTime(atime, "UTC");
+  atime = usMT.toLocal(atime, &tcr);
+  printDateTime(atime, tcr -> abbrev);
 }
 
 void printDigits(int digits)
 {
-  *comPort << ":";
+  *tracePort << ":";
   if (digits < 10)
-    *comPort << '0';
-  *comPort << digits;
+    *tracePort << '0';
+  *tracePort << digits;
 }
 
 void displayTime()
@@ -259,7 +277,7 @@ void displayTime()
 
 void processDisplayMessage()
 {
-  char c = comPort->read();
+  char c = tracePort->read();
   if ( c == DISPLAY_TIME)
   {
     displayTime();
@@ -268,25 +286,24 @@ void processDisplayMessage()
   {
     displayAlarm("...Lights On Alarm", lightsOnAlarm );
     displayAlarm("...Lights Off Alarm", lightsOffAlarm );
-    *comPort << "Duty Cycle Period = " << dutyCycleChangeAlarm.interval << " s" << endl;
+    *tracePort << "Duty Cycle Period = " << dutyCycleChangeAlarm.interval << " s" << endl;
   }
   else if ( c == DISPLAY_DUTY_CYCLE)
   {
-    *comPort << "Duty Cycle = " << strip1.getDutyCycle() << endl;
+    *tracePort << "Duty Cycle = " << strip1.getDutyCycle() << endl;
   }
-
 }
 
 void processShowTime()
 {
-  char c = comPort->read();
+  char c = tracePort->read();
   displayTime();
 }
 
 
 void processLightsMessage()
 {
-  char c = comPort->read();
+  char c = tracePort->read();
   switch (c)
   {
   case LIGHTS_ON:
@@ -296,13 +313,13 @@ void processLightsMessage()
     doLightsOff();
     break;
   case LIGHTS_DUTY_CYCLE:
-    strip1.setDutyCycle( comPort->parseInt());
+    strip1.setDutyCycle( tracePort->parseInt());
     break;
   case LIGHTS_RANDOM_DUTY_CYCLE_TIME:
     Alarm.free( dutyCycleChangeAlarm.id );
-      dutyCycleChangeAlarm.interval = comPort->parseInt();
-      dutyCycleChangeAlarm.id = Alarm.timerRepeat(dutyCycleChangeAlarm.interval, alterLEDPattern);
-      *comPort << "Duty cycle time set to " << dutyCycleChangeAlarm.interval << " s" << endl;
+    dutyCycleChangeAlarm.interval = tracePort->parseInt();
+    dutyCycleChangeAlarm.id = Alarm.timerRepeat(dutyCycleChangeAlarm.interval, alterLEDPattern);
+    *tracePort << F("Duty cycle time set to ") << dutyCycleChangeAlarm.interval << " s" << endl;
     break;
   default:
     break;
@@ -311,23 +328,23 @@ void processLightsMessage()
 
 void processAlarmMessage()
 {
-  char c = comPort->read();
+  char c = tracePort->read();
   if ( c == TIMER_ALARM_ON)
   {
     Alarm.free( lightsOnAlarm.id );
-    lightsOnAlarm.hours = comPort->parseInt(); //constrain(comPort->parseInt(), 0, 23);
-    lightsOnAlarm.minutes = comPort->parseInt(); //constrain(comPort->parseInt(), 0, 59);
-    lightsOnAlarm.seconds = comPort->parseInt(); // constrain(comPort->parseInt(), 0, 59);
+    lightsOnAlarm.hours = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 23);
+    lightsOnAlarm.minutes = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 59);
+    lightsOnAlarm.seconds = tracePort->parseInt(); // constrain(tracePort->parseInt(), 0, 59);
     lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.hours, lightsOnAlarm.minutes, lightsOnAlarm.seconds, doLightsOn);
     displayAlarm("Lights On Alarm", lightsOnAlarm );
-    // *comPort << comPort->parseInt() << "-" << comPort->parseInt() << "-" << comPort->parseInt() << endl;
+    // *tracePort << tracePort->parseInt() << "-" << tracePort->parseInt() << "-" << tracePort->parseInt() << endl;
   }
   else if ( c == TIMER_ALARM_OFF)
   {
     Alarm.free( lightsOffAlarm.id );
-    lightsOffAlarm.hours = comPort->parseInt(); //constrain(comPort->parseInt(), 0, 23);
-    lightsOffAlarm.minutes = comPort->parseInt(); //constrain(comPort->parseInt(), 0, 59);
-    lightsOffAlarm.seconds = comPort->parseInt(); // constrain(comPort->parseInt(), 0, 59);
+    lightsOffAlarm.hours = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 23);
+    lightsOffAlarm.minutes = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 59);
+    lightsOffAlarm.seconds = tracePort->parseInt(); // constrain(tracePort->parseInt(), 0, 59);
     lightsOffAlarm.id = Alarm.alarmRepeat(lightsOffAlarm.hours, lightsOffAlarm.minutes, lightsOffAlarm.seconds, doLightsOff);
     displayAlarm("Lights Off Alarm", lightsOffAlarm );
   }
@@ -335,25 +352,22 @@ void processAlarmMessage()
 
 void showCommands()
 {
-  *comPort << "Fs - Format time display short format" << endl;
-  *comPort << "Fl - Format time display long format" << endl;
-  *comPort << "Dt - Display Date/Time" << endl;
-  *comPort << "Da - Display Alarms" << endl;
-  *comPort << "T9999999999 - Set time using UNIX Epoch numner" << endl;
-  *comPort << "A1HH:MM:SS - Set lights on time " << endl;
-  *comPort << "A0HH:MM:SS  - Set lights off time " << endl;
-  *comPort << "L1  - Lights On " << endl;
-  *comPort << "L0  - Lights Off " << endl;
-  *comPort << "Ld99 - Lighting duty cycle 99 From 60 to 90" << endl;
-  *comPort << "Lr99999 - Lighting time to randomly change duty cycle in seconds" << endl;
-  *comPort << "?? - Display commands" << endl;
+  *tracePort << F("Dt - Display Date/Time") << endl;
+  *tracePort << F("Da - Display Alarms") << endl;
+  *tracePort << F("T9999999999 - Set time using UNIX Epoch numner") << endl;
+  *tracePort << F("A1HH:MM:SS - Set lights on time ") << endl;
+  *tracePort << F("A0HH:MM:SS  - Set lights off time ") << endl;
+  *tracePort << F("L1  - Lights On ") << endl;
+  *tracePort << F("L0  - Lights Off ") << endl;
+  *tracePort << F("Ld99 - Lighting duty cycle 99 From 60 to 90") << endl;
+  *tracePort << F("Lr99999 - Lighting time to randomly change duty cycle in seconds") << endl;
+  *tracePort << F("?? - Display commands") << endl;
 }
 void processSyncMessage()
 {
   unsigned long pctime;
-  const unsigned long DEFAULT_TIME = 976492800; 
-  pctime = comPort->parseInt();
-  //*comPort << pctime << endl;
+  pctime = tracePort->parseInt();
+  //*tracePort << pctime << endl;
   if ( pctime >= DEFAULT_TIME)   // check the integer is a valid time (greater than Jan 1 2013)
   {
     RTC.set(pctime);   // set the RTC and the system time to the received value
@@ -362,18 +376,13 @@ void processSyncMessage()
   }
 }
 
-time_t requestSync()
-{
-  comPort->write(TIME_REQUEST);
-  return 0; // the time will be sent later in response to Serial2 mesg
-}
 
 
 void doLightsOn()
 {
   strip1.turnOn();
   //strip2.turnOn();
-  *comPort << "...Lights on" << endl;
+  *tracePort << "...Lights on" << endl;
 }
 
 
@@ -381,8 +390,36 @@ void doLightsOff()
 {
   strip1.turnOff();
   //strip2.turnOff();
-  *comPort << "...Lights off" << endl;
+  *tracePort << "...Lights off" << endl;
 }
 
 
+void refreshModbusRegisters()
+{
+  modbusRegisters[HR_LED_DUTY_CYCLE] = strip1.getDutyCycle();
+  modbusRegisters[HR_LED_DUTY_CYCLE_PERIOD] = dutyCycleChangeAlarm.interval;
+  blconvert.val = AlarmHMS( lightsOnAlarm.hours, lightsOnAlarm.minutes, lightsOnAlarm.seconds);
+  modbusRegisters[ HR_LED_ON_TIME ] = blconvert.regsl[0];
+  modbusRegisters[ HR_LED_ON_TIME + 1 ] = blconvert.regsl[1];
+  blconvert.val = AlarmHMS( lightsOffAlarm.hours, lightsOffAlarm.minutes, lightsOffAlarm.seconds);
+  modbusRegisters[ HR_LED_OFF_TIME ] = blconvert.regsl[0];
+  modbusRegisters[ HR_LED_OFF_TIME + 1 ] = blconvert.regsl[1];
+  blconvert.val = now();
+  modbusRegisters[ HR_CURRENT_TIME ] = blconvert.regsl[0];
+  modbusRegisters[ HR_CURRENT_TIME + 1 ] = blconvert.regsl[1];
+}
 
+void processModbusCommands()
+{
+  if (  modbusRegisters[HR_SET_TIME] != 0 )
+  {
+    unsigned long pctime;
+    blconvert.regsl[0] = modbusRegisters[ HR_SET_TIME ];
+    blconvert.regsl[1] = modbusRegisters[ HR_SET_TIME + 1 ];
+    pctime = blconvert.val;
+    RTC.set(pctime);   // set the RTC and the system time to the received value
+    setTime(pctime); // Sync Arduino clock to the time received on the Serial2 port
+    modbusRegisters[ HR_SET_TIME ] = 0;
+    modbusRegisters[ HR_SET_TIME + 1 ] = 0;
+  }
+}
