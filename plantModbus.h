@@ -17,11 +17,12 @@
 #include <ModbusRtu.h>
 
 
-#define COIL_STATUS_READ_OFFSET 0
-#define COIL_STATUS_WRITE_OFFSET 5
-#define HOLDING_REGISTER_READ_OFFSET 10
+#define COIL_STATUS_READ_WRITE_OFFSET 0
+#define COIL_STATUS_WRITE_START_BIT	(16*5)  // 80 coils/bits for reads then followed by write memory for coils
+
+#define HOLDING_REGISTER_READ_OFFSET 10		// start read holding regisers
 #define HOLDING_REGISTER_WRITE_OFFSET 30
-#define MODBUS_REG_COUNT HOLDING_REGISTER_WRITE_OFFSET + 8
+
 
 
 
@@ -39,34 +40,21 @@
 #define HR_SET_DUTY_CYCLE		HR_SET_LED_OFF_TIME + 2
 #define HR_SET_DUTY_CYCLE_PERIOD HR_SET_DUTY_CYCLE + 1
 
+#define MODBUS_REG_COUNT HOLDING_REGISTER_WRITE_OFFSET + HR_SET_DUTY_CYCLE_PERIOD + 1
 
-#define CS_LED_STATUS			COIL_STATUS_READ_OFFSET
-
-#define CS_SET_LED_ON			 COIL_STATUS_WRITE_OFFSET
+// coil write commands
+#define CS_SET_LED_ON			 COIL_STATUS_WRITE_START_BIT //bit position
 #define CS_SET_LED_OFF			 CS_SET_LED_ON + 1
 #define CS_RESET_TO_DEFAULTS	 CS_SET_LED_OFF + 1
+
+// coil statuses
+#define CS_LED_STATUS			COIL_STATUS_READ_WRITE_OFFSET
 
 
 #define MB_SLAVE_ID				1
 #define MB_SERIAL_PORT			0
 
-struct _cs_writes
-{
-  unsigned int address;
-  unsigned short bit;
-  void (*handler)();
-} ;
 
-/*
-typedef _cs_writes CS_WriteEntry;
-
-
-CS_WriteEntry modbusCSHostCommands[3] = {
-	{COIL_STATUS_WRITE_OFFSET,1,COIL_STATUS_READ_OFFSET,},
-	{COIL_STATUS_WRITE_OFFSET,2,COIL_STATUS_READ_OFFSET},
-	{COIL_STATUS_WRITE_OFFSET,3,COIL_STATUS_READ_OFFSET}	
-};
-*/
 
 union
 {

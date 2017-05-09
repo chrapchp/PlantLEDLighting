@@ -479,8 +479,9 @@ void refreshModbusRegisters()
   blconvert.val = now();
   modbusRegisters[ HR_CURRENT_TIME ] = blconvert.regsl[0];
   modbusRegisters[ HR_CURRENT_TIME + 1 ] = blconvert.regsl[1];
-
   modbusRegisters[ CS_LED_STATUS ] = plantStrip.isLightsOn();
+  modbusRegisters[ CS_LED_STATUS ] = plantStrip.isLightsOn();
+  writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET, CS_LED_STATUS, plantStrip.isLightsOn());
   //bitWrite(modbusRegisters[ COIL_STATUS_READ_OFFSET], CS_SET_LED_ON, plantStrip.isLightsOn());
 }
 
@@ -554,15 +555,43 @@ void setModbusDutyCyclePeriod()
 
 void setModbusLightsOn()
 {
-  // if (  bitRead(modbusRegisters[COIL_STATUS_WRITE_OFFSET], CS_SET_LED_ON )  )
-  // 
-  if (  modbusRegisters[CS_SET_LED_ON]  )
+//   *tracePort << "...modbus pre Lights on" <<  modbusRegisters[COIL_STATUS_WRITE_OFFSET+1]  << endl;
+  if (  getModbusCoilValue( COIL_STATUS_READ_WRITE_OFFSET, CS_SET_LED_ON )  )
   {
-    *tracePort << "...modbus Lights on" << endl;
+    //*tracePort << "...got a bit" << endl;
     doLightsOn();
-    modbusRegisters[CS_SET_LED_ON] = 0;
-   // bitClear(modbusRegisters[COIL_STATUS_WRITE_OFFSET], CS_SET_LED_ON );
+    writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET, CS_SET_LED_ON, false);
   }
+}
+
+
+void setModbusLightsOff()
+{
+//   *tracePort << "...modbus pre Lights on" <<  modbusRegisters[COIL_STATUS_WRITE_OFFSET+1]  << endl;
+  if (  getModbusCoilValue( COIL_STATUS_READ_WRITE_OFFSET, CS_SET_LED_OFF )  )
+  {
+    doLightsOff();
+    writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET, CS_SET_LED_OFF, false);
+  }
+}
+
+void setConfigToDefaults()
+{
+  if (  getModbusCoilValue( COIL_STATUS_READ_WRITE_OFFSET, CS_RESET_TO_DEFAULTS )  )
+  {
+    EEPROMWriteDefaultConfig();
+    EEPROMLoadConfig();
+    writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET, CS_RESET_TO_DEFAULTS, false);
+  }
+}
+bool getModbusCoilValue( unsigned short startAddress, unsigned short bitPos)
+{
+  return ( bitRead(modbusRegisters[startAddress + (int)(bitPos / 16)], bitPos % 16 ) );
+}
+
+void writeModbusCoil( unsigned short startAddress, unsigned short bitPos, bool value )
+{
+  bitWrite(modbusRegisters[startAddress + (int)(bitPos / 16)], bitPos % 16 , value) ;
 }
 
 void processModbusCommands()
@@ -573,6 +602,8 @@ void processModbusCommands()
   setModbusLightsOnTime();
   setModbusLightsOffTime();
   setModbusLightsOn();
+  setModbusLightsOff();
+  setConfigToDefaults();
 }
 
 /*
