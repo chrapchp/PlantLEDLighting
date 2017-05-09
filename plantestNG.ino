@@ -1,4 +1,4 @@
-#include <SerialModbusSlave.h>
+
 
 /**
  *  @file    planttestNG.ino
@@ -23,7 +23,7 @@
 #include <Timezone.h>    //https://github.com/JChristensen/Timezone
 #include <Wire.h>
 #include <DS3232RTC.h>    //http://github.com/JChristensen/DS3232RTC
-
+#include <avr/eeprom.h>
 
 
 #include <TimeAlarms.h>
@@ -36,10 +36,12 @@
 
 #define STRIP_1_PIN 6
 
-#define MIN_DUTY_CYCLE 20
-#define MAX_DUTY_CYCLE 90
+#define DEFAULT_LIGHTS_ON_ALARM_TIME AlarmHMS(4, 0, 0)
+#define DEFAULT_LIGHTS_OFF_ALARM_TIME AlarmHMS(23, 0, 0)
+#define DEFAULT_LIGHTS_DUTY_CYCLE_PERIOD 60 * 60
 
-// single character message tags
+
+// single character message tags from terminal host
 #define TIME_HEADER   'T'   // Header tag for Serial2 time sync message
 
 #define DISPLAY_HEADER   'D'   // Display header tag 
@@ -60,7 +62,8 @@
 #define LIGHTS_OFF   '0'          // Turn lights off L0
 //efine LIGHTS_TOOGLE 't'         // toggle
 #define LIGHTS_DUTY_CYCLE 'd'     // Ld60 -> 60% dominant color default mostly red 60-90 percent allowed
-#define LIGHTS_RANDOM_DUTY_CYCLE_TIME 'r' // Lr3600 -> change the duty cycle between 60-90 % every hour
+#define LIGHTS_DUTY_CYCLE_PERIOD 'r' // Lr3600 -> change the duty cycle between 60-90 % every hour
+#define LIGHTS_RESET_TO_DEFAULTS 'c'
 
 
 //#define HOST_COMMAND_CHECK_INTERVAL  1000
@@ -68,13 +71,23 @@
 
 const unsigned long DEFAULT_TIME = 976492800;
 
+// comment out to not include terminal processing
+#define PROCESS_TERMINAL
+
+
+#define EEPROM_CONFIGURED       2   // this value stored at address CONFIG_FLAG_ADDR 
+#define EEPROM_CONFIG_FLAG_ADDR 0   // is 0 if nothing was written
+#define EEPROM_LED_LIGHTS_ON_TIME_ADDR EEPROM_CONFIG_FLAG_ADDR + sizeof(unsigned short)
+#define EEPROM_LED_LIGHTS_OFF_TIME_ADDR EEPROM_LED_LIGHTS_ON_TIME_ADDR + sizeof(time_t)
+#define EEPROM_LIGHTS_DUTY_CYCLE_PERIOD  EEPROM_LED_LIGHTS_OFF_TIME_ADDR + sizeof(time_t)
+
 
 //DA_AnalogInput TT_100 = DA_AnalogInput(  A4, -40.0, 40.0 );
 //DA_DiscreteInput LSL_100 = DA_DiscreteInput(  12 );
 
 
 
-PlantLEDStrip strip1 = PlantLEDStrip(3 * 60 + 2 * 144  , STRIP_1_PIN, NEO_GRB + NEO_KHZ800);
+PlantLEDStrip plantStrip = PlantLEDStrip(3 * 60 + 2 * 144  , STRIP_1_PIN, NEO_GRB + NEO_KHZ800);
 //PlantLEDStrip strip2 = PlantLEDStrip(60  , STRIP_2_PIN, NEO_GRB + NEO_KHZ800);
 
 HardwareSerial *tracePort = &Serial2;
@@ -85,33 +98,19 @@ Timezone usMT(usMDT, usMST);
 
 struct _AlarmEntry
 {
-  short hours;
-  short minutes;
-  short seconds;
-  AlarmId id;
+  time_t epoch;
+  AlarmId id = dtINVALID_ALARM_ID;
 } ;
 
-struct _AlarmIntervalEntry
-{
-  unsigned long interval;
-  AlarmId id;
-} ;
 
 typedef _AlarmEntry AlarmEntry;
-typedef _AlarmIntervalEntry AlarmIntervalEntry;
-
-AlarmEntry lightsOnAlarm = { 11, 0, 0, dtINVALID_ALARM_ID };
-AlarmEntry lightsOffAlarm = { 4, 0, 0,  dtINVALID_ALARM_ID};
-AlarmIntervalEntry dutyCycleChangeAlarm = { 60 * 60, dtINVALID_ALARM_ID};
 
 
-void displayAlarm( char *who, struct _AlarmEntry aAlarmEntry)
-{
-  *tracePort << who << "id = " << aAlarmEntry.id << " set to "  << aAlarmEntry.hours ;
-  printDigits(aAlarmEntry.minutes );
-  printDigits(aAlarmEntry.seconds );
-  *tracePort << endl;
-}
+
+AlarmEntry lightsOnAlarm ; //= { AlarmHMS(4, 0, 0), dtINVALID_ALARM_ID };
+AlarmEntry lightsOffAlarm ; //= { AlarmHMS(11, 0, 0),  dtINVALID_ALARM_ID};
+AlarmEntry dutyCycleChangeAlarm ; //  = { 60 * 60, dtINVALID_ALARM_ID};
+
 
 void onTT_100Sample( float aValue )
 {
@@ -136,15 +135,17 @@ void onLSL_100EdgeDetect( bool state )
 
 void alterLEDPattern()
 {
-  strip1.setDutyCycle( random(60, 90 ));
+  plantStrip.randomizeDutyCycle();
   //strip2.setDutyCycle( random(80, 90) );
-// strip1.flipColors();
+// plantStrip.flipColors();
   //strip2.flipColors();
 }
 
 void setup()
 {
+#ifdef PROCESS_TERMINAL
   tracePort->begin(9600);
+#endif
   slave.begin( 19200 );
   randomSeed(analogRead(0));
   //setSyncProvider( requestSync);  //set function to call when sync required
@@ -157,15 +158,26 @@ void setup()
   }
   else
     *tracePort << F("RTC has set the system time") << endl;
-  showCommands();
+  //showCommands();
   *tracePort << F("Enter Command:") << endl;
-  lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.hours, lightsOnAlarm.minutes, lightsOnAlarm.seconds, doLightsOn);
-  displayAlarm("...Lights On Alarm", lightsOnAlarm );
-  lightsOffAlarm.id = Alarm.alarmRepeat(lightsOffAlarm.hours, lightsOffAlarm.minutes, lightsOffAlarm.seconds, doLightsOff);
-  displayAlarm("...Lights Off Alarm", lightsOffAlarm );
-  dutyCycleChangeAlarm.id = Alarm.timerRepeat(dutyCycleChangeAlarm.interval, alterLEDPattern);
-  strip1.initialize();
-  //strip2.initialize();
+  /*
+   lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.epoch, doLightsOn);
+   displayAlarm("...Lights On Alarm", lightsOnAlarm );
+   lightsOffAlarm.id = Alarm.alarmRepeat(lightsOffAlarm.epoch, doLightsOff);
+   displayAlarm("...Lights Off Alarm", lightsOffAlarm );
+   dutyCycleChangeAlarm.id = Alarm.timerRepeat(dutyCycleChangeAlarm.epoch, alterLEDPattern);
+   */
+  plantStrip.initialize();
+  if (isEEPROMConfigured() == EEPROM_CONFIGURED )
+  {
+    EEPROMLoadConfig();
+  }
+  else
+  {
+    EEPROMWriteDefaultConfig();
+    EEPROMLoadConfig();
+  }
+//*tracePort << "offset=" + timeToLocal << endl;
   /*
   TT_100.setPollingInterval( 1000 );
   TT_100.setOnPollCallBack(&onTT_100Sample);
@@ -183,23 +195,39 @@ void setup()
 
 void loop()
 {
-  //*tracePort << analogRead(POT_PIN);
-  // inputDutyCycle = map(analogRead(POT_PIN), 0, 1023, MIN_DUTY_CYCLE, MAX_DUTY_CYCLE);
-  //*tracePort << inputDutyCycle;
-  strip1.refresh();
+  plantStrip.refresh();
   refreshModbusRegisters();
   slave.poll( modbusRegisters, MODBUS_REG_COUNT );
   processModbusCommands();
-  //strip2.refresh();
-  doCommandFromHostCheck();
+#ifdef PROCESS_TERMINAL
+  processTerminalCommands();
+#endif
   Alarm.delay(LIGHT_REFRESH_INTERVAL);
   // TT_100.refresh();
   //LSL_100.refresh();
 }
 
 
+/*
+ ** handle terminal commands from host
+ */
+#ifdef PROCESS_TERMINAL
 
-void doCommandFromHostCheck()
+void displayAlarm( char *who, struct _AlarmEntry aAlarmEntry)
+{
+  *tracePort << who << "id = " << aAlarmEntry.id << " UTC set to "  << hour(aAlarmEntry.epoch) ;
+  printDigits(minute(aAlarmEntry.epoch) );
+  printDigits(second(aAlarmEntry.epoch ) );
+  time_t localAlarmTime = alarmTimeToLocal(aAlarmEntry.epoch);
+  *tracePort << " UTC epoch is " << aAlarmEntry.epoch ;
+  *tracePort << " Local is " << hour(localAlarmTime) ;
+  printDigits(minute(localAlarmTime) );
+  printDigits(second(localAlarmTime ) );
+  *tracePort << " epoch is " << localAlarmTime << endl;
+}
+
+
+void processTerminalCommands()
 {
   if (tracePort->available() > 1)
   {
@@ -208,7 +236,7 @@ void doCommandFromHostCheck()
     // *tracePort << c << endl;
     if ( c == TIME_HEADER)
     {
-      processSyncMessage();
+      processTimeSetMessage();
     }
     else if ( c == DISPLAY_HEADER)
     {
@@ -244,13 +272,6 @@ void printDateTime( time_t aTime , char *timeZone)
 
 void digitalClockDisplay()
 {
-  *tracePort << hour() ;
-  printDigits(minute());
-  printDigits(second()) ;
-  *tracePort << " ";
-  *tracePort << dayStr(weekday()) << " " ;
-  *tracePort << monthShortStr(month()) << " ";
-  *tracePort << day() << " "  << year() << endl;
   TimeChangeRule *tcr;        //pointer to the time change rule, use to get the TZ abbrev
   time_t atime;
   atime = now();
@@ -286,11 +307,11 @@ void processDisplayMessage()
   {
     displayAlarm("...Lights On Alarm", lightsOnAlarm );
     displayAlarm("...Lights Off Alarm", lightsOffAlarm );
-    *tracePort << "Duty Cycle Period = " << dutyCycleChangeAlarm.interval << " s" << endl;
+    *tracePort << "Duty Cycle Period = " << dutyCycleChangeAlarm.epoch << " s id=" << dutyCycleChangeAlarm.id << endl;
   }
   else if ( c == DISPLAY_DUTY_CYCLE)
   {
-    *tracePort << "Duty Cycle = " << strip1.getDutyCycle() << endl;
+    *tracePort << "Duty Cycle = " << plantStrip.getDutyCycle() << endl;
   }
 }
 
@@ -313,13 +334,19 @@ void processLightsMessage()
     doLightsOff();
     break;
   case LIGHTS_DUTY_CYCLE:
-    strip1.setDutyCycle( tracePort->parseInt());
+    plantStrip.setDutyCycle( tracePort->parseInt());
     break;
-  case LIGHTS_RANDOM_DUTY_CYCLE_TIME:
+  case LIGHTS_DUTY_CYCLE_PERIOD:
     Alarm.free( dutyCycleChangeAlarm.id );
-    dutyCycleChangeAlarm.interval = tracePort->parseInt();
-    dutyCycleChangeAlarm.id = Alarm.timerRepeat(dutyCycleChangeAlarm.interval, alterLEDPattern);
-    *tracePort << F("Duty cycle time set to ") << dutyCycleChangeAlarm.interval << " s" << endl;
+    dutyCycleChangeAlarm.epoch = tracePort->parseInt();
+    dutyCycleChangeAlarm.id = Alarm.timerRepeat(dutyCycleChangeAlarm.epoch, alterLEDPattern);
+    EEPROMWriteAlarmEntry( dutyCycleChangeAlarm.epoch, EEPROM_LIGHTS_DUTY_CYCLE_PERIOD );
+    *tracePort << F("Duty cycle time set to ") << dutyCycleChangeAlarm.epoch << " s" << endl;
+    break;
+  case LIGHTS_RESET_TO_DEFAULTS:
+    EEPROMWriteDefaultConfig();
+    EEPROMLoadConfig();
+    *tracePort << F("Settings set to Defaults") << endl;
     break;
   default:
     break;
@@ -332,20 +359,24 @@ void processAlarmMessage()
   if ( c == TIMER_ALARM_ON)
   {
     Alarm.free( lightsOnAlarm.id );
-    lightsOnAlarm.hours = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 23);
-    lightsOnAlarm.minutes = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 59);
-    lightsOnAlarm.seconds = tracePort->parseInt(); // constrain(tracePort->parseInt(), 0, 59);
-    lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.hours, lightsOnAlarm.minutes, lightsOnAlarm.seconds, doLightsOn);
+    unsigned int shour = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 23);
+    unsigned int sminute = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 59);
+    unsigned int ssecond = tracePort->parseInt(); // constrain(tracePort->parseInt(), 0, 59);
+    lightsOnAlarm.epoch = alarmTmeToUTC(AlarmHMS(shour, sminute, ssecond));
+    lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.epoch, doLightsOn);
+    EEPROMWriteAlarmEntry( lightsOnAlarm.epoch, EEPROM_LED_LIGHTS_ON_TIME_ADDR );
     displayAlarm("Lights On Alarm", lightsOnAlarm );
     // *tracePort << tracePort->parseInt() << "-" << tracePort->parseInt() << "-" << tracePort->parseInt() << endl;
   }
   else if ( c == TIMER_ALARM_OFF)
   {
     Alarm.free( lightsOffAlarm.id );
-    lightsOffAlarm.hours = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 23);
-    lightsOffAlarm.minutes = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 59);
-    lightsOffAlarm.seconds = tracePort->parseInt(); // constrain(tracePort->parseInt(), 0, 59);
-    lightsOffAlarm.id = Alarm.alarmRepeat(lightsOffAlarm.hours, lightsOffAlarm.minutes, lightsOffAlarm.seconds, doLightsOff);
+    unsigned int shour = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 23);
+    unsigned int sminute = tracePort->parseInt(); //constrain(tracePort->parseInt(), 0, 59);
+    unsigned int ssecond = tracePort->parseInt(); // constrain(tracePort->parseInt(), 0, 59);
+    lightsOffAlarm.epoch = alarmTmeToUTC(AlarmHMS(shour, sminute, ssecond));
+    lightsOffAlarm.id = Alarm.alarmRepeat(lightsOffAlarm.epoch, doLightsOff);
+    EEPROMWriteAlarmEntry( lightsOffAlarm.epoch, EEPROM_LED_LIGHTS_OFF_TIME_ADDR );
     displayAlarm("Lights Off Alarm", lightsOffAlarm );
   }
 }
@@ -361,9 +392,12 @@ void showCommands()
   *tracePort << F("L0  - Lights Off ") << endl;
   *tracePort << F("Ld99 - Lighting duty cycle 99 From 60 to 90") << endl;
   *tracePort << F("Lr99999 - Lighting time to randomly change duty cycle in seconds") << endl;
+  *tracePort << F("Lc  - reset/clear settings to defaults ") << endl;
   *tracePort << F("?? - Display commands") << endl;
 }
-void processSyncMessage()
+
+
+void processTimeSetMessage()
 {
   unsigned long pctime;
   pctime = tracePort->parseInt();
@@ -375,41 +409,83 @@ void processSyncMessage()
     displayTime();
   }
 }
-
+#endif
 
 
 void doLightsOn()
 {
-  strip1.turnOn();
+  plantStrip.turnOn();
   //strip2.turnOn();
+#ifdef PROCESS_TERMINAL
   *tracePort << "...Lights on" << endl;
+#endif
 }
 
 
 void doLightsOff()
 {
-  strip1.turnOff();
+  plantStrip.turnOff();
   //strip2.turnOff();
+#ifdef PROCESS_TERMINAL
   *tracePort << "...Lights off" << endl;
+#endif
 }
 
+// timezone lib does not handle short 24 hr duration epochs
+time_t alarmTmeToUTC( time_t localAlarmTime )
+{
+  time_t utcAlarmTime =  usMT.toUTC( localAlarmTime);
+  if ( usMT.utcIsDST(now()))
+  {
+    utcAlarmTime -= 60 * 60;
+  }
+  if ( utcAlarmTime > SECS_PER_DAY)
+    utcAlarmTime -= SECS_PER_DAY;
+  return ( utcAlarmTime );
+}
+
+time_t alarmTimeToLocal( time_t utcAlarmTime )
+{
+  TimeChangeRule *tcr;        //pointer to the time change rule, use to get the TZ abbrev
+  time_t localAlarmTime = usMT.toLocal(utcAlarmTime, &tcr);
+  int offset = tcr->offset ; // in minutes
+  if ( usMT.utcIsDST(now()))
+  {
+    offset += 60 ;
+    localAlarmTime += 60 * 60;
+  }
+  if ( ( hour(utcAlarmTime) + (int) offset / 60)  < 0 )
+  {
+    int hr = 12 + (hour(utcAlarmTime) - (int)offset / 60);
+    localAlarmTime = AlarmHMS( hr , minute(utcAlarmTime), second(utcAlarmTime));
+  }
+  return ( localAlarmTime);
+}
+
+/*
+** Modbus related functions
+*/
 
 void refreshModbusRegisters()
 {
-  modbusRegisters[HR_LED_DUTY_CYCLE] = strip1.getDutyCycle();
-  modbusRegisters[HR_LED_DUTY_CYCLE_PERIOD] = dutyCycleChangeAlarm.interval;
-  blconvert.val = AlarmHMS( lightsOnAlarm.hours, lightsOnAlarm.minutes, lightsOnAlarm.seconds);
+  modbusRegisters[HR_LED_DUTY_CYCLE] = plantStrip.getDutyCycle();
+  modbusRegisters[HR_LED_DUTY_CYCLE_PERIOD] = dutyCycleChangeAlarm.epoch;
+  blconvert.val = lightsOnAlarm.epoch ;
   modbusRegisters[ HR_LED_ON_TIME ] = blconvert.regsl[0];
   modbusRegisters[ HR_LED_ON_TIME + 1 ] = blconvert.regsl[1];
-  blconvert.val = AlarmHMS( lightsOffAlarm.hours, lightsOffAlarm.minutes, lightsOffAlarm.seconds);
+  blconvert.val =  lightsOffAlarm.epoch;
   modbusRegisters[ HR_LED_OFF_TIME ] = blconvert.regsl[0];
   modbusRegisters[ HR_LED_OFF_TIME + 1 ] = blconvert.regsl[1];
   blconvert.val = now();
   modbusRegisters[ HR_CURRENT_TIME ] = blconvert.regsl[0];
   modbusRegisters[ HR_CURRENT_TIME + 1 ] = blconvert.regsl[1];
+
+  modbusRegisters[ CS_LED_STATUS ] = plantStrip.isLightsOn();
+  //bitWrite(modbusRegisters[ COIL_STATUS_READ_OFFSET], CS_SET_LED_ON, plantStrip.isLightsOn());
 }
 
-void processModbusCommands()
+
+void setModbusTime()
 {
   if (  modbusRegisters[HR_SET_TIME] != 0 )
   {
@@ -422,4 +498,129 @@ void processModbusCommands()
     modbusRegisters[ HR_SET_TIME ] = 0;
     modbusRegisters[ HR_SET_TIME + 1 ] = 0;
   }
+}
+
+void setModbusLightsOnTime()
+{
+  if (  modbusRegisters[HR_SET_LED_ON_TIME] != 0 )
+  {
+    blconvert.regsl[0] = modbusRegisters[ HR_SET_LED_ON_TIME ];
+    blconvert.regsl[1] = modbusRegisters[ HR_SET_LED_ON_TIME + 1 ];
+    lightsOnAlarm.epoch  = alarmTmeToUTC(blconvert.val);
+    Alarm.free( lightsOnAlarm.id );
+    lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.epoch , doLightsOn);
+    EEPROMWriteAlarmEntry( lightsOnAlarm.epoch, EEPROM_LED_LIGHTS_ON_TIME_ADDR );
+    modbusRegisters[ HR_SET_LED_ON_TIME ] = 0;
+    modbusRegisters[ HR_SET_LED_ON_TIME + 1 ] = 0;
+  }
+}
+
+void setModbusLightsOffTime()
+{
+  if (  modbusRegisters[HR_SET_LED_OFF_TIME] != 0 )
+  {
+    blconvert.regsl[0] = modbusRegisters[ HR_SET_LED_OFF_TIME ];
+    blconvert.regsl[1] = modbusRegisters[ HR_SET_LED_OFF_TIME + 1 ];
+    lightsOffAlarm.epoch  = alarmTmeToUTC(blconvert.val);
+    Alarm.free( lightsOffAlarm.id );
+    lightsOffAlarm.id = Alarm.alarmRepeat(lightsOffAlarm.epoch , doLightsOff);
+    EEPROMWriteAlarmEntry( lightsOffAlarm.epoch, EEPROM_LED_LIGHTS_OFF_TIME_ADDR );
+    modbusRegisters[ HR_SET_LED_OFF_TIME ] = 0;
+    modbusRegisters[ HR_SET_LED_OFF_TIME + 1 ] = 0;
+  }
+}
+
+void setModbusDutyCycle()
+{
+  if (  modbusRegisters[HR_SET_DUTY_CYCLE] != 0 )
+  {
+    plantStrip.setDutyCycle( modbusRegisters[ HR_SET_DUTY_CYCLE ] );
+    modbusRegisters[ HR_SET_DUTY_CYCLE ] = 0;
+  }
+}
+
+
+void setModbusDutyCyclePeriod()
+{
+  if (  modbusRegisters[HR_SET_DUTY_CYCLE_PERIOD] != 0 )
+  {
+    Alarm.free( dutyCycleChangeAlarm.id );
+    dutyCycleChangeAlarm.epoch = modbusRegisters[ HR_SET_DUTY_CYCLE_PERIOD ] ;
+    dutyCycleChangeAlarm.id = Alarm.timerRepeat(dutyCycleChangeAlarm.epoch, alterLEDPattern);
+    EEPROMWriteAlarmEntry( dutyCycleChangeAlarm.epoch, EEPROM_LIGHTS_DUTY_CYCLE_PERIOD );
+    modbusRegisters[ HR_SET_DUTY_CYCLE_PERIOD ] = 0;
+  }
+}
+
+void setModbusLightsOn()
+{
+  // if (  bitRead(modbusRegisters[COIL_STATUS_WRITE_OFFSET], CS_SET_LED_ON )  )
+  // 
+  if (  modbusRegisters[CS_SET_LED_ON]  )
+  {
+    *tracePort << "...modbus Lights on" << endl;
+    doLightsOn();
+    modbusRegisters[CS_SET_LED_ON] = 0;
+   // bitClear(modbusRegisters[COIL_STATUS_WRITE_OFFSET], CS_SET_LED_ON );
+  }
+}
+
+void processModbusCommands()
+{
+  setModbusTime();
+  setModbusDutyCycle();
+  setModbusDutyCyclePeriod();
+  setModbusLightsOnTime();
+  setModbusLightsOffTime();
+  setModbusLightsOn();
+}
+
+/*
+ ** EEPROM functions
+ */
+
+
+void EEPROMWriteDefaultConfig()
+{
+  unsigned short configFlag = EEPROM_CONFIGURED;
+  eeprom_write_block((const void*)&configFlag, (void*)EEPROM_CONFIG_FLAG_ADDR, sizeof(configFlag));
+  time_t epoch = alarmTmeToUTC(DEFAULT_LIGHTS_ON_ALARM_TIME);
+  EEPROMWriteAlarmEntry( epoch, EEPROM_LED_LIGHTS_ON_TIME_ADDR );
+  epoch = alarmTmeToUTC(DEFAULT_LIGHTS_OFF_ALARM_TIME);
+  EEPROMWriteAlarmEntry( epoch, EEPROM_LED_LIGHTS_OFF_TIME_ADDR );
+  epoch = DEFAULT_LIGHTS_DUTY_CYCLE_PERIOD;
+  EEPROMWriteAlarmEntry( epoch, EEPROM_LIGHTS_DUTY_CYCLE_PERIOD );
+}
+
+void EEPROMWriteAlarmEntry( time_t epoch, unsigned int atAddress )
+{
+  eeprom_write_block((const void*)&epoch, (void*)atAddress, sizeof(epoch));
+}
+
+time_t EEPROMReadAlarmEntry( unsigned int atAddress )
+{
+  time_t epoch = 0;
+  eeprom_read_block((void*)&epoch, (void*)atAddress, sizeof(epoch));
+  return ( epoch );
+}
+
+unsigned int isEEPROMConfigured()
+{
+  unsigned short configFlag;
+  eeprom_read_block((void*)&configFlag, (void*)EEPROM_CONFIG_FLAG_ADDR, sizeof(configFlag));
+  return ( configFlag);
+}
+
+
+void EEPROMLoadConfig()
+{
+  lightsOnAlarm.epoch = EEPROMReadAlarmEntry( EEPROM_LED_LIGHTS_ON_TIME_ADDR);
+  Alarm.free( lightsOnAlarm.id );
+  lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.epoch , doLightsOn);
+  lightsOffAlarm.epoch = EEPROMReadAlarmEntry( EEPROM_LED_LIGHTS_OFF_TIME_ADDR);
+  Alarm.free( lightsOffAlarm.id );
+  lightsOffAlarm.id = Alarm.alarmRepeat( lightsOffAlarm.epoch, doLightsOff);
+  dutyCycleChangeAlarm.epoch = EEPROMReadAlarmEntry( EEPROM_LIGHTS_DUTY_CYCLE_PERIOD);
+  Alarm.free( dutyCycleChangeAlarm.id );
+  dutyCycleChangeAlarm.id = Alarm.alarmRepeat(dutyCycleChangeAlarm.epoch, alterLEDPattern);
 }

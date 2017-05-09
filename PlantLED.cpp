@@ -15,7 +15,7 @@ PlantLEDStrip::PlantLEDStrip(int length,  uint8_t pin, uint8_t pixel_type ) : Ad
 
 void PlantLEDStrip::refresh()
 {
-  if ( isLightsOn )
+  if ( isLightsOn() )
   {
     doRegularPlantLighting();
     show();
@@ -69,25 +69,34 @@ unsigned short PlantLEDStrip::getDutyCycle()
 
 void PlantLEDStrip::setDutyCycle( unsigned short aDutyCycle )
 {
-  currentDutyCycle = aDutyCycle;
+
+  currentDutyCycle = constrain(aDutyCycle, MIN_DUTY_CYCLE, MAX_DUTY_CYCLE);
 }
 
+void PlantLEDStrip::randomizeDutyCycle()
+{
+  setDutyCycle( random(MIN_DUTY_CYCLE, MAX_DUTY_CYCLE ));
+}
 
 void PlantLEDStrip::turnOff()
 {
-  isLightsOn = false;
+  _isLightsOn = false;
   fillSegment( BLACK );
   show();
 }
 
 void PlantLEDStrip::turnOn()
 {
-  isLightsOn = true;
+  _isLightsOn = true;
 }
 
+bool PlantLEDStrip::isLightsOn()
+{
+  return( _isLightsOn );
+}
 void PlantLEDStrip::flipColors()
 {
-  if ( isLightsOn )
+  if ( isLightsOn() )
   {
     uint32_t tColor = majorityColor;
     majorityColor = minorityColor;

@@ -23,9 +23,11 @@
 #include <Adafruit_NeoPixel.h>
 
 
-#define MIN_DUTY_CYCLE 20
-#define MAX_DUTY_CYCLE 90
+#define MIN_DUTY_CYCLE 70
+#define MAX_DUTY_CYCLE 95
 #define NUM_OF_SEGMENTS 10
+
+
 
 const uint32_t RED =   0xFF0000; ;// (uint32_t) 0xFF << 16
 const uint32_t GREEN = 0x00FF00;
@@ -55,6 +57,8 @@ public:
   void setDutyCycle( unsigned short aDutyCycle );
   const uint32_t blue = Color(0, 0, 255);
   const uint32_t red = Color(255, 0, 0);
+  void randomizeDutyCycle();
+  bool isLightsOn();
 /**
  * [turnOff turnoff the LED strip and don't refesh]
  */
@@ -77,7 +81,7 @@ private:
   uint32_t majorityColor, minorityColor;    // What colors are in use
   unsigned short currentDutyCycle;
   unsigned int currentPixel = 0;
-  bool isLightsOn = true;
+  bool _isLightsOn = true;
   void doRegularPlantLighting();
 
 };
