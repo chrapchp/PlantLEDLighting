@@ -65,6 +65,9 @@
 #define LIGHTS_DUTY_CYCLE_PERIOD 'r' // Lr3600 -> change the duty cycle between 60-90 % every hour
 #define LIGHTS_RESET_TO_DEFAULTS 'c'
 
+#define IO_HEADER 'I'          // read IO points
+#define IO_AMBIENT_TEMP 't'
+#define IO_SOIL_MOISTURE 'm'
 
 //#define HOST_COMMAND_CHECK_INTERVAL  1000
 #define LIGHT_REFRESH_INTERVAL  100
@@ -81,9 +84,11 @@ const unsigned long DEFAULT_TIME = 976492800;
 #define EEPROM_LED_LIGHTS_OFF_TIME_ADDR EEPROM_LED_LIGHTS_ON_TIME_ADDR + sizeof(time_t)
 #define EEPROM_LIGHTS_DUTY_CYCLE_PERIOD  EEPROM_LED_LIGHTS_OFF_TIME_ADDR + sizeof(time_t)
 
+// Define I/O first parameter is pin number
+DA_AnalogInput TE_001 = DA_AnalogInput(  A4, 0.0, 500. ); // LM35 10mV per degC -> 5000 mv = 150C
+DA_AnalogInput QE_001 = DA_AnalogInput(  A6, 0.0, 100. ); // soil moisture
 
-//DA_AnalogInput TT_100 = DA_AnalogInput(  A4, -40.0, 40.0 );
-//DA_DiscreteInput LSL_100 = DA_DiscreteInput(  12 );
+//DA_DiscreteInput LSL_001 = DA_DiscreteInput(  12 );
 
 
 
@@ -117,14 +122,19 @@ void onTT_100Sample( float aValue )
   *tracePort << "TT-100 = " << aValue << endl;
 }
 
+
+void onQE_001Sample( float aValue )
+{
+  *tracePort << "QT-001 = " << aValue << endl;
+}
 void onTT_100SampleDeadband( float aValue )
 {
   *tracePort << "Deadband TT-100 = " << aValue << endl;
 }
 
-void onLSL_100Sample( bool aValue )
+void onQE_001SampleDeadband( float aValue )
 {
-  *tracePort << "LSL_100 = " << aValue << endl;
+  *tracePort << "Deadband QT-001 = " << aValue << endl;
 }
 
 void onLSL_100EdgeDetect( bool state )
@@ -160,13 +170,6 @@ void setup()
     *tracePort << F("RTC has set the system time") << endl;
   //showCommands();
   *tracePort << F("Enter Command:") << endl;
-  /*
-   lightsOnAlarm.id = Alarm.alarmRepeat(lightsOnAlarm.epoch, doLightsOn);
-   displayAlarm("...Lights On Alarm", lightsOnAlarm );
-   lightsOffAlarm.id = Alarm.alarmRepeat(lightsOffAlarm.epoch, doLightsOff);
-   displayAlarm("...Lights Off Alarm", lightsOffAlarm );
-   dutyCycleChangeAlarm.id = Alarm.timerRepeat(dutyCycleChangeAlarm.epoch, alterLEDPattern);
-   */
   plantStrip.initialize();
   if (isEEPROMConfigured() == EEPROM_CONFIGURED )
   {
@@ -178,19 +181,22 @@ void setup()
     EEPROMLoadConfig();
   }
 //*tracePort << "offset=" + timeToLocal << endl;
+  TE_001.setPollingInterval( 1000 );
+  QE_001.setPollingInterval( 1000 );
+// QE_001.setOnPollCallBack(&onQE_001Sample);
+  //TT_100.setOnPollCallBack(&onTT_100Sample);
+ TE_001.setOutsideDeadbandDetectedEvent(&onTT_100SampleDeadband);
+  TE_001.setDeadband(.005);  // 1% of EU Span
+  QE_001.setDeadband(.05);
+  QE_001.setOutsideDeadbandDetectedEvent(&onQE_001SampleDeadband);
   /*
-  TT_100.setPollingInterval( 1000 );
-  TT_100.setOnPollCallBack(&onTT_100Sample);
-  TT_100.setOutsideDeadbandDetectedEvent(&onTT_100SampleDeadband);
-  TT_100.setDeadband(.01);
-
-  LSL_100.setPollingInterval( 15 );
-  // LSL_100.setOnPollCallBack(&onLSL_100Sample);
-  LSL_100.setOnEdgeEvent(&onLSL_100EdgeDetect);
-  LSL_100.enableInternalPullup();
-  LSL_100.setEdgeDetectType( DA_DiscreteInput::FallingEdgeDetect );
-  LSL_100.setDebouceTime(10);
-  */
+    LSL_100.setPollingInterval( 15 );
+    // LSL_100.setOnPollCallBack(&onLSL_100Sample);
+    LSL_100.setOnEdgeEvent(&onLSL_100EdgeDetect);
+    LSL_100.enableInternalPullup();
+    LSL_100.setEdgeDetectType( DA_DiscreteInput::FallingEdgeDetect );
+    LSL_100.setDebouceTime(10);
+    */
 }
 
 void loop()
@@ -203,8 +209,9 @@ void loop()
   processTerminalCommands();
 #endif
   Alarm.delay(LIGHT_REFRESH_INTERVAL);
-  // TT_100.refresh();
-  //LSL_100.refresh();
+  TE_001.refresh();
+  QE_001.refresh();
+//  LSL_100.refresh();
 }
 
 
@@ -255,6 +262,10 @@ void processTerminalCommands()
     {
       processAlarmMessage();
     }
+    else if ( c == IO_HEADER)
+    {
+      processDisplayIOMessage();
+    }
   }
 }
 
@@ -295,6 +306,20 @@ void displayTime()
     digitalClockDisplay();
   }
 }
+
+void processDisplayIOMessage()
+{
+  char c = tracePort->read();
+  if ( c == IO_AMBIENT_TEMP)
+  {
+    *tracePort << "Abient Temp = " << TE_001.getScaledSample() << " C" << endl;
+  }
+  else if ( c == IO_SOIL_MOISTURE)
+  {
+    *tracePort << "Soil Moisture = " << QE_001.getScaledSample() << "%" << endl;
+  }
+}
+
 
 void processDisplayMessage()
 {
@@ -383,6 +408,7 @@ void processAlarmMessage()
 
 void showCommands()
 {
+  *tracePort << "-------------------------------------------------------------------" << endl;
   *tracePort << F("Dt - Display Date/Time") << endl;
   *tracePort << F("Da - Display Alarms") << endl;
   *tracePort << F("T9999999999 - Set time using UNIX Epoch numner") << endl;
@@ -393,7 +419,10 @@ void showCommands()
   *tracePort << F("Ld99 - Lighting duty cycle 99 From 60 to 90") << endl;
   *tracePort << F("Lr99999 - Lighting time to randomly change duty cycle in seconds") << endl;
   *tracePort << F("Lc  - reset/clear settings to defaults ") << endl;
+  *tracePort << F("It  - display ambient temperature (C)") << endl;
+  *tracePort << F("Im  - display Soil Moisture") << endl;  
   *tracePort << F("?? - Display commands") << endl;
+  *tracePort << "------------------------------------------------------------------" << endl;
 }
 
 
@@ -482,6 +511,8 @@ void refreshModbusRegisters()
   modbusRegisters[ CS_LED_STATUS ] = plantStrip.isLightsOn();
   modbusRegisters[ CS_LED_STATUS ] = plantStrip.isLightsOn();
   writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET, CS_LED_STATUS, plantStrip.isLightsOn());
+  modbusRegisters[HR_AMBIENT_TEMPERATURE] = (int) TE_001.getScaledSample() * 10;
+  modbusRegisters[HR_SOIL_MOISTURE] = (int) QE_001.getScaledSample() * 10;  
   //bitWrite(modbusRegisters[ COIL_STATUS_READ_OFFSET], CS_SET_LED_ON, plantStrip.isLightsOn());
 }
 

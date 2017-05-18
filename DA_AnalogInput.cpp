@@ -1,6 +1,9 @@
 #include <Streaming.h>
 #include "DA_AnalogInput.h"
 
+#define RAW_IN 0
+#define RAW_OUT 1023
+
 DA_AnalogInput::DA_AnalogInput( uint8_t aPin, float aEUMin, float aEUMax ): DA_Input(analog, aPin )
 {
 
@@ -42,6 +45,7 @@ float DA_AnalogInput::fmap( unsigned int raw, unsigned int raw_min, unsigned int
 {
   float retVal;
 
+//Serial2 << "num=" << (raw - raw_min) * (EU_max - EU_min) << " dem=" << (raw_max - raw_min) << " offset=" << EU_min << endl;
   retVal = (raw - raw_min) * (EU_max - EU_min) / (raw_max - raw_min) + EU_min;
   // Serial << retVal << endl;
   return ( retVal );
@@ -50,7 +54,7 @@ float DA_AnalogInput::fmap( unsigned int raw, unsigned int raw_min, unsigned int
 bool DA_AnalogInput::isOutsideDeadband( int aNewValue,  int aCurValue )
 {
 // Serial << "delta=" << abs(aNewValue - aCurValue) << " deadband=" << deadBand * 1023 << endl;
-  return ( abs(aNewValue - aCurValue) >=  deadBand * 1023 );
+  return ( abs(aNewValue - aCurValue) >=  deadBand * euSpan );
 }
 /*
   bool DA_AnalogInput::isOutsideDeadband(float aNewValue, float aCurValue ) {
@@ -62,8 +66,12 @@ bool DA_AnalogInput::isOutsideDeadband( int aNewValue,  int aCurValue )
 void DA_AnalogInput::onRefresh()
 {
 
+ // pinMode(pin, OUTPUT);
+ //  analogWrite(pin, 0 );
+ //  pinMode( pin, INPUT);
+// delay(10);
   unsigned int pendingRawValue = analogRead(pin);
-  float pendingScaledValue = fmap(pendingRawValue, 0, 1023, euMin, euMax);
+  float pendingScaledValue = fmap(pendingRawValue, DA_RAW_MIN, DA_RAW_MAX, euMin, euMax);
 
   if ( isFirstSample || isOutsideDeadband( pendingRawValue, previousRawSample ))
   {

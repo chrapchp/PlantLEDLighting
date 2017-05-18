@@ -17,6 +17,7 @@
 
 #define DEAD_BAND_DEFAULT  0.0
 
+
 class DA_AnalogInput: public DA_Input
 {
 public:
@@ -43,7 +44,7 @@ public:
 */
   void setOutsideDeadbandDetectedEvent( void (*callBack)( float scaledValue ));
 /**
- * [setDeadband sets deadband for analog point // +/- .11 -> +/- 11% deadband]
+ * [setDeadband sets deadband for analog point // +/- .11 -> +/- 11% deadband] of EU Span
 */  
   float setDeadband( float aPercentage ); 
 

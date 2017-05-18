@@ -16,7 +16,7 @@
 #include <SoftwareSerial.h>
 #include <ModbusRtu.h>
 
-
+ 
 #define COIL_STATUS_READ_WRITE_OFFSET 0
 #define COIL_STATUS_WRITE_START_BIT	(16*5)  // 80 coils/bits for reads then followed by write memory for coils
 

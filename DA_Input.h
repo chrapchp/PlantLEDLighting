@@ -14,6 +14,10 @@
 #ifndef DA_INPUT_H
 #define DA_INPUT_H
 #define DEFAULT_POLLING_INTERVAL 50 // ms 
+#define DA_RAW_MIN 0
+#define DA_RAW_MAX 1023
+
+
 
 enum INPUT_TYPE  { discrete, analog };
 
@@ -33,6 +37,10 @@ protected:
   virtual void onRefresh() = 0;
   //  virtual void doAlarmCheck() = 0;
   int  pin;
+  unsigned int rawValue;
+  //T scaledValue;
+
+
   INPUT_TYPE inputType;
 private:
   unsigned long lastUpdateTime = 0;
