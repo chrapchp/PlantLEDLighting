@@ -3,7 +3,14 @@
 
 DA_DiscreteInput::DA_DiscreteInput( uint8_t aPin ): DA_Input(discrete, aPin )
 {
-  pinMode(aPin, INPUT);
+  //pinMode(aPin, INPUT);
+}
+
+DA_DiscreteInput::DA_DiscreteInput(  uint8_t aPin, DA_DiscreteInput::edgeDetectType aEdgeDectType, bool aEnableInternalPullup ):DA_Input(discrete, aPin ) 
+{
+  setEdgeDetectType( aEdgeDectType );
+  if( aEnableInternalPullup )
+    enableInternalPullup(); 
 }
 
 /*
@@ -66,11 +73,12 @@ void DA_DiscreteInput::doEdgeDetection()
       invokeCallBack = false;
     }
 
-    if (     !isFirstSample && invokeCallBack && onEdgeDetect != NULL )
+    //if (     !isFirstSample && invokeCallBack && onEdgeDetect != NULL )
+    if (      invokeCallBack && onEdgeDetect != NULL )    
     {
       onEdgeDetect( currentRawSample );
     }
-    isFirstSample = false;
+    //isFirstSample = false;
   }
 
 
@@ -111,7 +119,7 @@ void DA_DiscreteInput::onRefresh()
 }
 
 
-void DA_DiscreteInput::setDebouceTime( unsigned int aDebounceTime)
+void DA_DiscreteInput::setDebounceTime( unsigned int aDebounceTime)
 {
   debounceTime = aDebounceTime;
 }
@@ -144,3 +152,11 @@ void DA_DiscreteInput::disableInternalPullup()   // default-input pin floats
 }
 
 
+void DA_DiscreteInput::serialize( HardwareSerial *tracePort, bool includeCR )
+{
+  DA_Input::serialize( tracePort, false);
+
+  *tracePort << "{currentState:" << getRawSample()  << " debounceTime:" << debounceTime << " ms edgeDetectType:" << edgeDectionType << "}";
+  if( includeCR )
+    *tracePort << endl;
+}

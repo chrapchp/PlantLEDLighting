@@ -1,8 +1,8 @@
 #include <Streaming.h>
 #include "DA_AnalogInput.h"
 
-#define RAW_IN 0
-#define RAW_OUT 1023
+//#define RAW_IN 0
+//#define RAW_OUT 1023
 
 DA_AnalogInput::DA_AnalogInput( uint8_t aPin, float aEUMin, float aEUMax ): DA_Input(analog, aPin )
 {
@@ -10,6 +10,7 @@ DA_AnalogInput::DA_AnalogInput( uint8_t aPin, float aEUMin, float aEUMax ): DA_I
   euMin = aEUMin;
   euMax = aEUMax;
   euSpan = euMax - euMin;
+  
 }
 
 

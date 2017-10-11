@@ -3,10 +3,11 @@
 
 
 
-DA_Input::DA_Input( INPUT_TYPE aInputType, uint8_t aPin )
+DA_Input::DA_Input( IO_TYPE aInputType, uint8_t aPin )
 {
   inputType = aInputType;
   pin = aPin;
+  pinMode(pin, INPUT);
 }
 
 
@@ -24,4 +25,11 @@ void DA_Input::refresh()
     lastUpdateTime = currentTime;
     onRefresh();
   }
+}
+
+void DA_Input::serialize(HardwareSerial * tracePort, bool includeCR)
+{
+  * tracePort << "{pin:" << pin << " inputType:" << ( inputType == discrete ? 'D' : 'A' ) << " pollingInterval:" << pollingInterval << " }";
+  if (includeCR)
+    * tracePort << endl;
 }

@@ -14,7 +14,7 @@
 #include "DA_Input.h"
 
 
-#define DEFAULT_DEBOUNCE_TIME 50 // 50 ms
+#define DEFAULT_DEBOUNCE_TIME 100 // 100 ms
 
 class DA_DiscreteInput: public DA_Input
 {
@@ -26,19 +26,21 @@ public:
    */
   enum edgeDetectType  { None, RisingEdgeDetect, FallingEdgeDetect, ToggleDetect };
   DA_DiscreteInput(  uint8_t aPin );
-//  DA_DiscreteInput(  uint8_t aPin, DA_DiscreteInput::edgeDetectType aEdgeDectType );
-  bool getRawSample();
+  DA_DiscreteInput(  uint8_t aPin, DA_DiscreteInput::edgeDetectType aEdgeDectType, bool aEnableInternalPullup ) ;
+  bool getRawSample();  // return debounced current state 
 
   void setOnPollCallBack( void (*callBack)( bool aValue ));
-  void setDebouceTime( unsigned int aDebounceTime);
+  void setDebounceTime( unsigned int aDebounceTime);
   void setEdgeDetectType( DA_DiscreteInput::edgeDetectType aEdgeDectType );
   void setOnEdgeEvent( void (*callBack)( bool aValue ));
   void enableInternalPullup();  // internal pull up resitor enabled
   void disableInternalPullup(); // default-input pin floats
+
+  void serialize( HardwareSerial *tracePort, bool includeCR); 
 private:
 
   bool isInputToggled();
-  bool isFirstSample = true;  // to avoid false edge dectection
+ // bool isFirstSample = false;  // to avoid false edge dectection
   bool currentRawSample;
   bool previousState = false; // for edge dectection
   bool previousDebounceRead = false;

@@ -13,26 +13,26 @@
 
 #ifndef DA_INPUT_H
 #define DA_INPUT_H
+
+
+#include "DA_IO.h"
+#include <HardwareSerial.h>
 #define DEFAULT_POLLING_INTERVAL 50 // ms 
-#define DA_RAW_MIN 0
-#define DA_RAW_MAX 1023
 
-
-
-enum INPUT_TYPE  { discrete, analog };
 
 class DA_Input
 {
 
 public:
-  DA_Input( INPUT_TYPE aInputType, uint8_t aPin );
-  void refresh();
+  DA_Input( IO_TYPE aInputType, uint8_t aPin );
+  void refresh(); 
   //void setOnPollCallBack( void (*callBack)( int scaledValue ));
   /**
    * [setPollingInterval how often to read inputs]
    * @param aPollingInterval [in ms]
    */
   void setPollingInterval( unsigned int aPollingInterval );
+  virtual void serialize( HardwareSerial *tracePort, bool includeCR );
 protected:
   virtual void onRefresh() = 0;
   //  virtual void doAlarmCheck() = 0;
@@ -41,7 +41,7 @@ protected:
   //T scaledValue;
 
 
-  INPUT_TYPE inputType;
+  IO_TYPE inputType;
 private:
   unsigned long lastUpdateTime = 0;
   unsigned int pollingInterval = DEFAULT_POLLING_INTERVAL;
