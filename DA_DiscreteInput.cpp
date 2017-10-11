@@ -80,9 +80,6 @@ void DA_DiscreteInput::doEdgeDetection()
     }
     //isFirstSample = false;
   }
-
-
-
 }
 
 bool DA_DiscreteInput::debouncedRead()

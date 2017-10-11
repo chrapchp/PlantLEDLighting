@@ -28,12 +28,22 @@
 #include <HardwareSerial.h>
 #include <TimeLib.h>
 #include <Timezone.h> //https://github.com/JChristensen/Timezone
-#include <Wire.h>
+
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <Wire.h>  // for RTC
 #include <DS3232RTC.h> //http://github.com/JChristensen/DS3232RTC
 #include <avr/eeprom.h>
+
+
 #include <TimeAlarms.h>
 #include <Streaming.h>
 #include <NewPing.h>
+
+#include <Adafruit_Sensor.h>
+#include <DHT.h>  // DHT-22 humidity sensor
+
+
 #include "PlantModbus.h"
 #include "DA_Analoginput.h"
 #include "DA_Discreteinput.h"
@@ -53,13 +63,24 @@ const unsigned long DEFAULT_TIME = 976492800;
 // comment out to not include terminal processing
 #define PROCESS_TERMINAL
 #define POLL_CYCLE_SECONDS 5 // sonar and 1-wire refresh rate
-// Define I/O first parameter is pin number
-// DA_AnalogInput TT_001 = DA_AnalogInput(  A4, 0.0, 500. ); // LM35 10mV per degC -> 5000 mv = 150C
-// DA_AnalogInput QE_001 = DA_AnalogInput(  A6, 0.0, 100. ); // soil moisture
-// DA_DiscreteOutput t = DA_DiscreteOutput( 5, false );
-// DA_DiscreteInput LSL_001 = DA_DiscreteInput(  12 );
+
+
+// DHT-22 - one wire type humidity sensor (won't work with one wire lib)
+#define DHT_BUS 2 
+#define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+DHT dht(DHT_BUS, DHTTYPE);
+
 // 
+// One Wire 
 // 
+DeviceAddress ambientTemperatureAddress = { 0x28,0x6F,0xE3,0xA0,0x04,0x00,0x00,0x5A };
+DeviceAddress mixtureTemperatureAddress =  { 0x28,0xFF,0xF4,0xF6,0x84,0x16,0x05,0x0C };
+#define ONE_WIRE_BUS  3 // pin
+#define ONE_TEMPERATURE_PRECISION 9
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+
 // Analog Inputs
 // 
 // NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);
@@ -72,7 +93,7 @@ DA_DiscreteInput HS_001A = DA_DiscreteInput(7); // Circulation Pump Hand Status 
 DA_DiscreteInput HS_001B = DA_DiscreteInput(8); // Circulation Pump Automatic Status : HOA
 DA_DiscreteInput SSH_101 = DA_DiscreteInput(9); // Smoke Detector
 
-DA_HOASwitch HS_102AB = DA_HOASwitch(11, 0, 10); // Non flowing LED : HOA
+DA_HOASwitch HS_102AB = DA_HOASwitch(52, 0, 53); // Non flowing LED : HOA
 DA_HOASwitch HS_103AB = DA_HOASwitch(22, 0, 12); // flowing LED : HOA
 
 DA_DiscreteInput HS_002 = DA_DiscreteInput(24, DA_DiscreteInput::ToggleDetect, true); // Inlet H20 Start/Stop
@@ -284,6 +305,42 @@ void setupRTC()
   }
 }
 
+
+void printOneWireAddress( HardwareSerial *tracePort, DeviceAddress aDeviceAddress, bool aCR)
+{
+  for (uint8_t i = 0; i < 8; i++)
+  {
+    // zero pad the address if necessary
+    if (aDeviceAddress[i] < 16) *tracePort << '0';
+    tracePort->print(aDeviceAddress[i], HEX);
+  }
+  if( aCR )
+    *tracePort << endl;
+}
+
+void initOneWireDevice( DeviceAddress aDevice, uint8_t aIndex )
+{
+  if (!sensors.getAddress(aDevice, aIndex)) {
+    // TODO Alarm
+    #ifdef PROCESS_TERMINAL
+    *tracePort << "Unable to find address for Device at index " << aIndex << "address:" ;
+    printOneWireAddress( tracePort, aDevice ,true);
+    #endif
+    sensors.setResolution(aDevice, ONE_TEMPERATURE_PRECISION);
+  }
+
+}
+
+
+
+void initOneWire()
+{
+
+  initOneWireDevice(ambientTemperatureAddress,0 );
+  initOneWireDevice(mixtureTemperatureAddress,1 );
+
+}
+
 void setup()
 {
 
@@ -335,6 +392,12 @@ void setup()
   HS_101AB.setOnStateChangeDetect(& on_Fan_Process);
   HS_102AB.setOnStateChangeDetect( &on_NonFloweringLED_Process);  
   HS_103AB.setOnStateChangeDetect( &on_FloweringLED_Process);
+
+  // 1-wire
+  sensors.begin();
+  initOneWire();  
+  // humidity sensor
+  dht.begin();
 }
 
 void loop()
@@ -372,12 +435,41 @@ void refreshDiscreteOutputs()
   MY_101.refresh(); // on/off timer
 }
 
-// update sonar and 1-wire readings
+// update sonar and 1-wire DHT-22 readings
 void doOnPoll()
 {
   unsigned int imperial = LT_002.ping();
   LT_002_PV = imperial / US_ROUNDTRIP_CM;
+  sensors.requestTemperatures();
+
+  
+
+  #ifdef PROCESS_TERMINAL
   *tracePort << "Sonar:cm:" << LT_002_PV << " imperial:" << imperial/US_ROUNDTRIP_IN << endl;
+  *tracePort << "Ambient Temperature:" << sensors.getTempC(ambientTemperatureAddress) << "C" << endl;
+  *tracePort << "Mixture Temperature:" << sensors.getTempC(mixtureTemperatureAddress) << "C" << endl;  
+  #endif
+
+  float h = dht.readHumidity(); // allow 1/4 sec to read
+  float t = dht.readTemperature();
+
+
+  // Check if any reads failed and exit early (to try again).
+  if (isnan(h) || isnan(t) ) {
+    #ifdef PROCESS_TERMINAL
+      *tracePort << "Error reading from DHT-22 sensor." << endl;
+    #endif
+    return;
+  }
+  float hic = dht.computeHeatIndex(t, h, false);
+
+  #ifdef PROCESS_TERMINAL
+    *tracePort << "DHT-22 Relative Humidity:" << h << " Temperature:" << t << " C Humidex:" << hic << endl;
+  #endif
+
+
+
+
 }
 
 void doReadInputs()
