@@ -43,7 +43,7 @@
 #include <Adafruit_Sensor.h>
 #include <DHT.h>  // DHT-22 humidity sensor
 
-
+#include "flowmeter.h"
 #include "PlantModbus.h"
 #include "DA_Analoginput.h"
 #include "DA_Discreteinput.h"
@@ -60,10 +60,18 @@ const unsigned long DEFAULT_TIME = 976492800;
 #define EEPROM_LED_LIGHTS_ON_TIME_ADDR EEPROM_CONFIG_FLAG_ADDR + sizeof (unsigned short)
 #define EEPROM_LED_LIGHTS_OFF_TIME_ADDR EEPROM_LED_LIGHTS_ON_TIME_ADDR + sizeof (time_t)
 #define EEPROM_LIGHTS_DUTY_CYCLE_PERIOD EEPROM_LED_LIGHTS_OFF_TIME_ADDR + sizeof (time_t)
+
+
 // comment out to not include terminal processing
 #define PROCESS_TERMINAL
-#define POLL_CYCLE_SECONDS 5 // sonar and 1-wire refresh rate
 
+// refresh intervales
+#define POLL_CYCLE_SECONDS 5         // sonar and 1-wire refresh rate
+
+// flow meter
+#define FLOW_SENSOR_INTERUPT 1        
+#define FLOW_CALC_PERIOD_SECONDS   1 // flow rate calce period
+FlowMeter FT_002( 4, FLOW_CALC_PERIOD_SECONDS );
 
 // DHT-22 - one wire type humidity sensor (won't work with one wire lib)
 #define DHT_BUS 2 
@@ -131,6 +139,13 @@ typedef _AlarmEntry AlarmEntry;
 AlarmEntry lightsOn; // = { AlarmHMS(4, 0, 0), dtINVALID_ALARM_ID };
 AlarmEntry lightsOff; // = { AlarmHMS(11, 0, 0),  dtINVALID_ALARM_ID};
 AlarmEntry onRefreshAnalogs; // sonar and 1-wire read refresh
+
+
+void onFT_002_PulseIn()
+{
+    FT_002.handleFlowDetection();
+}
+
 // Alarm.alarmRepeat(8,30,0, MorningAlarm);
 void onTT_100Sample(float aValue)
 {
@@ -398,6 +413,8 @@ void setup()
   initOneWire();  
   // humidity sensor
   dht.begin();
+
+  attachInterrupt(FLOW_SENSOR_INTERUPT, onFT_002_PulseIn, RISING);
 }
 
 void loop()
