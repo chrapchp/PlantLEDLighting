@@ -29,6 +29,7 @@ class FlowMeter
   	float getCummulativeVolume();	// in L/sec
 
   	void resetStatistics();
+    void dayRollOver();
 
   	long	getMinFlowDuration();     //in seconds
   	long getMaxFlowDuration();     //in seconds
@@ -42,12 +43,14 @@ protected:
     float computeFlowRate();
 
 private:
+
 //   init( int aPin );
    void updateCummulativeVolume();
    void updateFlowRunTime();
    float mCurrentFlowRate;
    float mPreviousFlowRate;
    float mCummulativeVolume;
+   float mYDAYCumulativeVolume;
    long  mMaxFlowDuration;
    long	 mMinFlowDuration;
    long	 mAverageFlowDuration;

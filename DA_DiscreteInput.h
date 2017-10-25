@@ -25,12 +25,13 @@ public:
    * [ToggleDetect detect a change in state]
    */
   enum edgeDetectType  { None, RisingEdgeDetect, FallingEdgeDetect, ToggleDetect };
+  // default toggle detect, pull-up resistor off
   DA_DiscreteInput(  uint8_t aPin );
   DA_DiscreteInput(  uint8_t aPin, DA_DiscreteInput::edgeDetectType aEdgeDectType, bool aEnableInternalPullup ) ;
-  bool getRawSample();  // return debounced current state 
+  bool getSample();  // return debounced current state 
 
   void setOnPollCallBack( void (*callBack)( bool aValue ));
-  void setDebounceTime( unsigned int aDebounceTime);
+  void setDebounceTime( unsigned int aDebounceTime); //ms
   void setEdgeDetectType( DA_DiscreteInput::edgeDetectType aEdgeDectType );
   void setOnEdgeEvent( void (*callBack)( bool aValue ));
   void enableInternalPullup();  // internal pull up resitor enabled
@@ -53,7 +54,7 @@ private:
   void onRefresh();
   void doEdgeDetection();
   bool debouncedRead();
-  DA_DiscreteInput::edgeDetectType edgeDectionType = DA_DiscreteInput::None;
+  DA_DiscreteInput::edgeDetectType edgeDectionType = DA_DiscreteInput::ToggleDetect;
 
 };
 

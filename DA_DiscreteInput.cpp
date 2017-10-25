@@ -19,7 +19,7 @@ DA_DiscreteInput::DA_DiscreteInput(  uint8_t aPin, DA_DiscreteInput::edgeDetectT
   DA_DiscreteInput( aPin);
 }
 */
-bool DA_DiscreteInput::getRawSample()
+bool DA_DiscreteInput::getSample()
 {
   return ( currentRawSample );
 }
@@ -107,7 +107,7 @@ void DA_DiscreteInput::onRefresh()
   {
     if (onPoll != NULL)
     {
-      onPoll(getRawSample());
+      onPoll(getSample());
     }
 
     if ( edgeDectionType != None )
@@ -153,7 +153,7 @@ void DA_DiscreteInput::serialize( HardwareSerial *tracePort, bool includeCR )
 {
   DA_Input::serialize( tracePort, false);
 
-  *tracePort << "{currentState:" << getRawSample()  << " debounceTime:" << debounceTime << " ms edgeDetectType:" << edgeDectionType << "}";
+  *tracePort << "{currentState:" << getSample()  << " debounceTime:" << debounceTime << " ms edgeDetectType:" << edgeDectionType << "}";
   if( includeCR )
     *tracePort << endl;
 }

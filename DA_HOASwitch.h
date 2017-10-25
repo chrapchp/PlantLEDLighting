@@ -19,10 +19,11 @@
 class DA_HOASwitch
 {
 public:
+enum HOADetectType  { Unknown, Hand, Off, Auto  };
 DA_HOASwitch(  uint8_t aHandPin, uint8_t aOffPin, uint8_t aAutoPin  );
 
 
-	enum HOADetectType  { Unknown, Hand, Off, Auto  };
+
 
 	void setOnStateChangeDetect( void (*callBack)( HOADetectType aState ));  
 
@@ -33,7 +34,7 @@ DA_HOASwitch(  uint8_t aHandPin, uint8_t aOffPin, uint8_t aAutoPin  );
   // HIGH      		HIGH       Off       Disable Timer
   // otherwise do nothing		
 	void refresh();
-	HOADetectType getCurrentState();
+    HOADetectType getCurrentState();
 	 void serialize( HardwareSerial *tracePort, bool includeCR); 
 protected:
 

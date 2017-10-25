@@ -10,6 +10,7 @@
 
 
 
+
 FlowMeter::FlowMeter(int aPin, int aDeltaT )
 {
  mPin = aPin;
@@ -17,6 +18,7 @@ FlowMeter::FlowMeter(int aPin, int aDeltaT )
  mCurrentFlowDuration = 0;
  mDeltaT = aDeltaT;
  resetStatistics();
+ //attachInterrupt (digitalPinToInterrupt(aPin), interrupHdlr, RISING);  // attach interrupt handler
 
 }
 
@@ -108,10 +110,16 @@ float FlowMeter::getCummulativeVolume()
 	return( mCummulativeVolume );
 }
 
-
+void FlowMeter::dayRollOver()
+{
+	float curVolume = mCummulativeVolume;
+	resetStatistics();
+	mYDAYCumulativeVolume = mCummulativeVolume;
+}
 
 void FlowMeter::resetStatistics()
-{
+{	
+	mYDAYCumulativeVolume = 0;
 	mCummulativeVolume = 0.;
 	mMaxFlowDuration = 0;
 	mMinFlowDuration = 0;
@@ -146,10 +154,10 @@ long FlowMeter::getTotalFlowDuration()
 void FlowMeter::serialize(HardwareSerial *tracePort, bool includeCR)
 {
 
-	*tracePort << "{pin:" << mPin << " deltaT:" << mDeltaT << " curFlowRate:" << getCurrentFlowRate() ;
+	*tracePort << "{pin:" << mPin << " deltaT:" << mDeltaT << "s curFlowRate:" << getCurrentFlowRate() ;
 	*tracePort << " L/s minFlowDuration:" << getMinFlowDuration() << "s maxFlowDuration:" << getMaxFlowDuration()  ;
-	*tracePort << " s cummulativeVolume:" << getCummulativeVolume() << "s totalFlowDuration:" << getTotalFlowDuration()   ;
-	*tracePort << " s }" ; 
+	*tracePort << " s cummulativeVolume:" << getCummulativeVolume() << "L totalFlowDuration:" << getTotalFlowDuration()   ;
+	*tracePort << " s ydayVolume:" << mYDAYCumulativeVolume << "L  }" ; 
 	if (includeCR)
 		*tracePort << endl;
 }

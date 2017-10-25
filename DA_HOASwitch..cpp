@@ -37,8 +37,8 @@ void DA_HOASwitch::refresh()
 {
 	handSwitch.refresh();
 	autoSwitch.refresh();
-	bool handSwitchSample = handSwitch.getRawSample();
-	bool autoSwitchSample = autoSwitch.getRawSample();
+	bool handSwitchSample = handSwitch.getSample();
+	bool autoSwitchSample = autoSwitch.getSample();
 
 	invokeCallBack = false;
 
