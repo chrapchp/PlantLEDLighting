@@ -536,21 +536,21 @@ void displayMiscStatuses( bool clearScreen )
     lcd.clear();
   lcd.setCursor(0,0);
   lcd << F("FT-002:");
-  lcd.setCursor(0,7);
-  lcd << FT_002.getCurrentFlowRate();
-  lcd.setCursor(0,12);
+  lcd.setCursor(7,0);
+  lcd << FT_002.getPreviousFlowRate();
+  lcd.setCursor(12,0);
   lcd << F("L/s");
 
-  lcd.setCursor(1,0);
+  lcd.setCursor(0,1);
   lcd << F("FT-003:");
-  lcd.setCursor(0,7);
-  lcd << FT_002.getCurrentFlowRate();
-  lcd.setCursor(0,12);
+  lcd.setCursor(7,1);
+  lcd << 0.0;
+  lcd.setCursor(12,1);
   lcd << F("L/s");
   
-  lcd.setCursor(2,0);
+  lcd.setCursor(0,2);
   lcd << F("LSHH-002:");
-  lcd.setCursor(0,9);
+  lcd.setCursor(9,2);
   lcd << LSHH_002.getSample();
 
   
@@ -640,6 +640,7 @@ void setup()
   randomSeed(analogRead(0));
   // LCD display
   setupLCD();
+  setupLCDScreens();
   setupRTC();
   // InletValve
   // 
