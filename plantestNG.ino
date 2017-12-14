@@ -65,11 +65,11 @@ const unsigned long DEFAULT_TIME = 976492800;
 // refresh intervals
 #define POLL_CYCLE_SECONDS 5 // sonar and 1-wire refresh rate
 // flow meter
-#define FLOW_SENSOR_INTERUPT_PIN 2
+#define FT002_SENSOR_INTERUPT_PIN 2
 #define FLOW_CALC_PERIOD_SECONDS 1 // flow rate calc period
-#define ENABLE_FLOW_SENSOR_INTERRUPTS attachInterrupt(digitalPinToInterrupt(FLOW_SENSOR_INTERUPT_PIN), onFT_002_PulseIn, RISING)
-#define DISABLE_FLOW_SENSOR_INTERRUPTS detachInterrupt(digitalPinToInterrupt(FLOW_SENSOR_INTERUPT_PIN))
-FlowMeter FT_002(FLOW_SENSOR_INTERUPT_PIN, FLOW_CALC_PERIOD_SECONDS); // interrupt pin, calculation period in seconds
+#define ENABLE_FT002_SENSOR_INTERRUPTS attachInterrupt(digitalPinToInterrupt(FT002_SENSOR_INTERUPT_PIN), onFT_002_PulseIn, RISING)
+#define DISABLE_FT002_SENSOR_INTERRUPTS detachInterrupt(digitalPinToInterrupt(FT002_SENSOR_INTERUPT_PIN))
+FlowMeter FT_002(FT002_SENSOR_INTERUPT_PIN, FLOW_CALC_PERIOD_SECONDS); // interrupt pin, calculation period in seconds
 /*
 Blue Serial IIC/I2C/TWI 2004 204 20X4 Character LCD Module Display For Arduino
 PCF8574 BIT     HD44780 Function
@@ -86,8 +86,24 @@ back light pin, polarity
 LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 
 // screens
-enum ScreenType  { HomeScreen=0, HOAStatus, Temps  };
-ScreenType currentScreen = HomeScreen;
+//enum ScreenType  { HomeScreen=0, HOAStatus, MiscStatus  };
+//ScreenType currentScreen = HomeScreen;
+
+typedef struct LCDScreen LCDScreen;
+ struct LCDScreen
+{
+  void (*displayFunc)( bool clearScreen ) ;
+  struct LCDScreen *previousScreen ;
+  struct LCDScreen *nextScreen ;
+
+} ;
+
+
+
+LCDScreen *currentScreen;
+LCDScreen firstScreen ;
+LCDScreen secondScreen;
+LCDScreen thirdScreen;
 
 
 // DHT-22 - one wire type humidity sensor (won't work with one wire lib)
@@ -98,6 +114,8 @@ float AT_101H = NAN;
 float AT_101HI = NAN;
 // One Wire
 // 
+// 
+
 DeviceAddress ambientTemperatureAddress =
 {
   0x28, 0x6F, 0xE3, 0xA0, 0x04, 0x00, 0x00, 0x5A
@@ -198,7 +216,8 @@ void on_LCD_Next_Screen(bool state)
   *tracePort << "TO DO: LCD next screen HS_003A" << endl;
   HS_003A.serialize(tracePort, true);
 #endif
-  displayHOAStatuses( true);
+    currentScreen = currentScreen->nextScreen;
+    currentScreen->displayFunc( true );
 
 }
 
@@ -209,7 +228,10 @@ void on_LCD_Previous_Screen(bool state)
   *tracePort << "TO DO: LCD Previous screen HS_003B" << endl;
   HS_003B.serialize(tracePort, true);
 #endif
-  displayHomeScreen( true);
+
+    currentScreen = currentScreen->previousScreen;
+    currentScreen->displayFunc( true );
+
 
 }
 
@@ -491,13 +513,13 @@ void displayHomeScreen( bool clearScreen )
   lcd.home();
   displayDateTime();
   lcd.setCursor(0,1);
-  lcd << "Mixture Level:" << _FLOAT(LT_002_PV,1) << "%" ;
+  lcd << F("Mixture Level:") << _FLOAT(LT_002_PV,1) << "%" ;
   lcd.setCursor(0,2);
-  lcd << "MT:" << _FLOAT(sensors.getTempC(mixtureTemperatureAddress),1) << "C " ;
+  lcd << F("MT:") << _FLOAT(sensors.getTempC(mixtureTemperatureAddress),1) << "C " ;
 
-  lcd << "AT:" << _FLOAT(AT_101T,1) << "C" ; 
+  lcd << F("AT:") << _FLOAT(AT_101T,1) << "C" ; 
   lcd.setCursor(0,3);
-  lcd << "Rel Hum:" << _FLOAT(AT_101H,1) << "%";
+  lcd << F("Rel Hum:") << _FLOAT(AT_101H,1) << "%";
 /*
       *tracePort << "Sonar:cm:" << LT_002_PV << endl;
     *tracePort << "Ambient Temperature:" << sensors.getTempC(ambientTemperatureAddress) << "C" << endl;
@@ -505,9 +527,35 @@ void displayHomeScreen( bool clearScreen )
     *tracePort << "HT-101: " << "Rel Humidity:" << AT_101H << " % Temperature:" << AT_101T;
     *tracePort << " C Heat Index " << AT_101HI << endl;
     * */
-  currentScreen = HomeScreen;
+
 }
 
+void displayMiscStatuses( bool clearScreen ) 
+{
+  if( clearScreen )
+    lcd.clear();
+  lcd.setCursor(0,0);
+  lcd << F("FT-002:");
+  lcd.setCursor(0,7);
+  lcd << FT_002.getCurrentFlowRate();
+  lcd.setCursor(0,12);
+  lcd << F("L/s");
+
+  lcd.setCursor(1,0);
+  lcd << F("FT-003:");
+  lcd.setCursor(0,7);
+  lcd << FT_002.getCurrentFlowRate();
+  lcd.setCursor(0,12);
+  lcd << F("L/s");
+  
+  lcd.setCursor(2,0);
+  lcd << F("LSHH-002:");
+  lcd.setCursor(0,9);
+  lcd << LSHH_002.getSample();
+
+  
+
+}
 
 void displayHOAStatuses( bool clearScreen ) 
 {
@@ -516,7 +564,7 @@ void displayHOAStatuses( bool clearScreen )
 
   //lcd.home();
   lcd.setCursor(0,0);
-  lcd << "   CPMP  FLED  NLED";
+  lcd << F("   CPMP  FLED  NLED");
 
   lcd.setCursor(0,1);
   lcd << "H";
@@ -551,7 +599,7 @@ void displayHOAStatuses( bool clearScreen )
   lcd << ((HS_102AB.getCurrentState()==DA_HOASwitch::Auto)?"X":" ");      
 
        
-  currentScreen = HOAStatus;
+
 }
 
 
@@ -562,6 +610,22 @@ void setupLCD()
   doLCDSplashScreen();
 }
 
+void setupLCDScreens()
+{
+firstScreen.displayFunc = displayHomeScreen;
+firstScreen.previousScreen = &thirdScreen;
+firstScreen.nextScreen = &secondScreen;
+
+secondScreen.displayFunc = displayHOAStatuses;
+secondScreen.previousScreen = &firstScreen;
+secondScreen.nextScreen = &thirdScreen;
+
+thirdScreen.displayFunc = displayMiscStatuses;
+thirdScreen.previousScreen = &secondScreen;
+thirdScreen.nextScreen = &firstScreen;
+currentScreen = &firstScreen;
+
+}
 void setup()
 {
 
@@ -616,7 +680,7 @@ void setup()
   initOneWire();
   // humidity sensor
   AT_101.begin();
-  ENABLE_FLOW_SENSOR_INTERRUPTS;
+  ENABLE_FT002_SENSOR_INTERRUPTS;
   lcd.clear();
 }
 
@@ -670,21 +734,20 @@ void doOnMidnight()
 
 void refreshLCD()
 {
-if(currentScreen == HomeScreen )
-  displayHomeScreen( false );
-else
-    displayHOAStatuses(false);
+
+currentScreen->displayFunc(false);
+
 }
 
 void doOnCalcFlowRate()
 {
   refreshLCD();
 
-  DISABLE_FLOW_SENSOR_INTERRUPTS;
+  DISABLE_FT002_SENSOR_INTERRUPTS;
   FT_002.end();
   // FT_002.serialize( tracePort, true);
   FT_002.begin();
-  ENABLE_FLOW_SENSOR_INTERRUPTS;
+  ENABLE_FT002_SENSOR_INTERRUPTS;
   // resetTotalizers();
 }
 
