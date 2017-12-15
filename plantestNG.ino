@@ -66,10 +66,17 @@ const unsigned long DEFAULT_TIME = 976492800;
 #define POLL_CYCLE_SECONDS 5 // sonar and 1-wire refresh rate
 // flow meter
 #define FT002_SENSOR_INTERUPT_PIN 2
+#define FT003_SENSOR_INTERUPT_PIN 3
 #define FLOW_CALC_PERIOD_SECONDS 1 // flow rate calc period
 #define ENABLE_FT002_SENSOR_INTERRUPTS attachInterrupt(digitalPinToInterrupt(FT002_SENSOR_INTERUPT_PIN), onFT_002_PulseIn, RISING)
 #define DISABLE_FT002_SENSOR_INTERRUPTS detachInterrupt(digitalPinToInterrupt(FT002_SENSOR_INTERUPT_PIN))
 FlowMeter FT_002(FT002_SENSOR_INTERUPT_PIN, FLOW_CALC_PERIOD_SECONDS); // interrupt pin, calculation period in seconds
+#define ENABLE_FT003_SENSOR_INTERRUPTS attachInterrupt(digitalPinToInterrupt(FT003_SENSOR_INTERUPT_PIN), onFT_003_PulseIn, RISING)
+#define DISABLE_FT003_SENSOR_INTERRUPTS detachInterrupt(digitalPinToInterrupt(FT003_SENSOR_INTERUPT_PIN))
+FlowMeter FT_003(FT003_SENSOR_INTERUPT_PIN, FLOW_CALC_PERIOD_SECONDS); // interrupt pin, calculation period in seconds
+
+
+
 /*
 Blue Serial IIC/I2C/TWI 2004 204 20X4 Character LCD Module Display For Arduino
 PCF8574 BIT     HD44780 Function
@@ -133,7 +140,11 @@ DallasTemperature sensors(& oneWire);
 // Analog Inputs
 // 
 // NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE);
-NewPing LT_002(12, 11, 80); // Water Level
+
+#define NUTRIENT_TANK_HEIGHT 45        // hight of nutrient tank in cm
+#define NUTRIENT_TANK_AIR_GAP 16.5 // space between sensor and max water level in cm
+#define NUTRIENT_TANK_MIXTURE_MAX NUTRIENT_TANK_HEIGHT - NUTRIENT_TANK_AIR_GAP
+NewPing LT_002(15, 16, NUTRIENT_TANK_HEIGHT); // Water Level
 float LT_002_PV = 0.0; // Water Level present value in cm from top,  0-> undefined
 // Discrete Inputs
 DA_DiscreteInput LSHH_002 = DA_DiscreteInput(51, DA_DiscreteInput::ToggleDetect, true); // nutrient mixture hi-hi level switch
@@ -190,6 +201,11 @@ void onFT_002_PulseIn()
 }
 
 
+void onFT_003_PulseIn()
+{
+  FT_003.handleFlowDetection();
+}
+
 /*
 Only open inlet H20 Valve iff no Hi-Hi water level
 note LSHH is high on high level (fail safe )
@@ -212,10 +228,7 @@ void on_InletValve_Process(bool state)
 void on_LCD_Next_Screen(bool state)
 {
 
-#ifdef PROCESS_TERMINAL
-  *tracePort << "TO DO: LCD next screen HS_003A" << endl;
-  HS_003A.serialize(tracePort, true);
-#endif
+
     currentScreen = currentScreen->nextScreen;
     currentScreen->displayFunc( true );
 
@@ -224,10 +237,7 @@ void on_LCD_Next_Screen(bool state)
 void on_LCD_Previous_Screen(bool state)
 {
 
-#ifdef PROCESS_TERMINAL
-  *tracePort << "TO DO: LCD Previous screen HS_003B" << endl;
-  HS_003B.serialize(tracePort, true);
-#endif
+
 
     currentScreen = currentScreen->previousScreen;
     currentScreen->displayFunc( true );
@@ -254,7 +264,9 @@ void on_DrainPump_Process(bool state)
 #endif
 
   if (HS_001.getSample() == LOW)
+  {
     PY_002.activate();
+  }
   else
     PY_002.reset();
 }
@@ -539,21 +551,20 @@ void displayMiscStatuses( bool clearScreen )
   lcd.setCursor(7,0);
   lcd << FT_002.getPreviousFlowRate();
   lcd.setCursor(12,0);
-  lcd << F("L/s");
+  lcd << F("L/min");
 
   lcd.setCursor(0,1);
   lcd << F("FT-003:");
   lcd.setCursor(7,1);
-  lcd << 0.0;
+  lcd << FT_003 .getPreviousFlowRate();
   lcd.setCursor(12,1);
-  lcd << F("L/s");
+  lcd << F("L/min");
   
   lcd.setCursor(0,2);
   lcd << F("LSHH-002:");
   lcd.setCursor(9,2);
   lcd << LSHH_002.getSample();
 
-  
 
 }
 
@@ -742,21 +753,35 @@ currentScreen->displayFunc(false);
 
 void doOnCalcFlowRate()
 {
-  refreshLCD();
+
 
   DISABLE_FT002_SENSOR_INTERRUPTS;
   FT_002.end();
-  // FT_002.serialize( tracePort, true);
   FT_002.begin();
+
+  DISABLE_FT003_SENSOR_INTERRUPTS;
+  FT_003.end();
+  FT_003.begin();
+
+  refreshLCD();
+
   ENABLE_FT002_SENSOR_INTERRUPTS;
-  // resetTotalizers();
+  ENABLE_FT003_SENSOR_INTERRUPTS;
 }
 
 // update sonar and 1-wire DHT-22 readings
 void doOnPoll()
 {
+  float tLevel = 0.0;
+
    unsigned int imperial = LT_002.ping();
-   LT_002_PV = imperial / US_ROUNDTRIP_CM;
+   // compute distanace from high level mark
+   tLevel = NUTRIENT_TANK_MIXTURE_MAX - imperial / US_ROUNDTRIP_CM;
+
+  // convert to % full
+   LT_002_PV = (1 - tLevel / NUTRIENT_TANK_MIXTURE_MAX) * 100 ;
+*tracePort << "imperial=" << imperial << " tLevel = " << tLevel << " LT_002_PV= " << LT_002_PV << endl;
+
   sensors.requestTemperatures();
    AT_101H = AT_101.readHumidity(); // allow 1/4 sec to read
    AT_101T = AT_101.readTemperature();
