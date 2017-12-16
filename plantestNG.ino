@@ -57,9 +57,9 @@ const unsigned long DEFAULT_TIME = 976492800;
 #define EEPROM_LED_LIGHTS_ON_TIME_ADDR EEPROM_CONFIG_FLAG_ADDR + sizeof (unsigned short)
 #define EEPROM_LED_LIGHTS_OFF_TIME_ADDR EEPROM_LED_LIGHTS_ON_TIME_ADDR + sizeof (time_t)
 #define EEPROM_LIGHTS_DUTY_CYCLE_PERIOD EEPROM_LED_LIGHTS_OFF_TIME_ADDR + sizeof (time_t)
-#define VERSION F ("0.9")
+#define VERSION F ("0.95")
 // comment out to not include terminal processing
-#define PROCESS_TERMINAL
+//#define PROCESS_TERMINAL
 // comment out to not implement modbus
 //#define PROCESS_MODBUS
 // refresh intervals
@@ -143,9 +143,13 @@ DallasTemperature sensors(& oneWire);
 
 #define NUTRIENT_TANK_HEIGHT 45        // hight of nutrient tank in cm
 #define NUTRIENT_TANK_AIR_GAP 16.5 // space between sensor and max water level in cm
-#define NUTRIENT_TANK_MIXTURE_MAX NUTRIENT_TANK_HEIGHT - NUTRIENT_TANK_AIR_GAP
+#define NUTRIENT_DEAD_BAND 5.0    // % change allowed between samples as sensor bounces because of noise issue
+// volume 28.5 * 76.2 * 45.75 => 100 L volume peroxyde ration 3 ml per 3.8 L
+const   float NUTRIENT_TANK_MIXTURE_MAX = NUTRIENT_TANK_HEIGHT - NUTRIENT_TANK_AIR_GAP;
 NewPing LT_002(15, 16, NUTRIENT_TANK_HEIGHT); // Water Level
 float LT_002_PV = 0.0; // Water Level present value in cm from top,  0-> undefined
+float LT_002_PV_Prev = 0.0; // Water Level previous value
+
 // Discrete Inputs
 DA_DiscreteInput LSHH_002 = DA_DiscreteInput(51, DA_DiscreteInput::ToggleDetect, true); // nutrient mixture hi-hi level switch
 DA_DiscreteInput HS_001 = DA_DiscreteInput(50, DA_DiscreteInput::ToggleDetect, true); // Drain Pump Hand status : Start/Stop
@@ -524,6 +528,8 @@ void displayHomeScreen( bool clearScreen )
 
   lcd.home();
   displayDateTime();
+  lcd.setCursor(14,1);
+  lcd << "      ";
   lcd.setCursor(0,1);
   lcd << F("Mixture Level:") << _FLOAT(LT_002_PV,1) << "%" ;
   lcd.setCursor(0,2);
@@ -774,14 +780,20 @@ void doOnPoll()
 {
   float tLevel = 0.0;
 
-   unsigned int imperial = LT_002.ping();
+   unsigned int distanceCM = LT_002.ping() / US_ROUNDTRIP_CM - NUTRIENT_TANK_AIR_GAP ;
    // compute distanace from high level mark
-   tLevel = NUTRIENT_TANK_MIXTURE_MAX - imperial / US_ROUNDTRIP_CM;
+   tLevel = (NUTRIENT_TANK_MIXTURE_MAX - distanceCM) /  NUTRIENT_TANK_MIXTURE_MAX; // NUTRIENT_TANK_MIXTURE_MAX;
+   tLevel *= 100.0;
 
+  // if( abs( tLevel - LT_002_PV_Prev) <= NUTRIENT_DEAD_BAND )
+  // { 
   // convert to % full
-   LT_002_PV = (1 - tLevel / NUTRIENT_TANK_MIXTURE_MAX) * 100 ;
-*tracePort << "imperial=" << imperial << " tLevel = " << tLevel << " LT_002_PV= " << LT_002_PV << endl;
-
+ //  LT_002_PV = tLevel  ;
+// }
+ LT_002_PV = tLevel;
+ #ifdef PROCESS_TERMINAL
+*tracePort << "imperial=" << distanceCM << " tLevel = " << tLevel << " LT_002_PV= " << LT_002_PV << endl;
+#endif 
   sensors.requestTemperatures();
    AT_101H = AT_101.readHumidity(); // allow 1/4 sec to read
    AT_101T = AT_101.readTemperature();
