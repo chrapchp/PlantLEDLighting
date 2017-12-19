@@ -22,43 +22,57 @@
 
 #define HOLDING_REGISTER_READ_OFFSET 10		// start read holding regisers
 #define HOLDING_REGISTER_WRITE_OFFSET 30
+#define MODBUS_REG_COUNT 50
+
+#define CS_HS_001   0        // Drain Pump Hand status : Start/Stop
+#define CS_SSH_101   1        // Smoke Detector
+#define CS_HS_002   2        // Inlet H20 Open/Close
+#define CS_LSHH_002   3        // nutrient mixture hi-hi level switch
+
+#define HR_AT_101   10        // Ambient relative humidity
+#define HR_TT_101   12        // Abient Temperature
+#define HR_LT_002   14        // Water Level present value in cm from top,  0-> undefined
+#define HR_FT_002   16        // Inlet Flow
+#define HR_FT_003   18        // Nutrient Flow
+#define HR_HS_001HOA   20        // Circulation Pump  HOA  (H=1, O=2, A=3)
+#define HR_HS_102HOA   21        // Seeding Area  HOA  (H=1, O=2, A=3)
+#define HR_HS_103HOA   22        // Growing Chamber  HOA  (H=1, O=2, A=3)
+#define HR_HS_101HOA   23        // Fan HOA  (H=1, O=2, A=3)
+#define HR_TT_001   24        // mixture temperature
+#define HR_KY_002   25        // Version
+
+
+#define HW_DY_102_ONT   30        // Growing Chamber LED ON Time (UNIX EPOCH)
+#define HW_DY_102_OFT   32        // Growing Chamber LE30D OFF Time  (UNIX EPOCH)
+#define HW_DY_103_ONT   34        // Seeding Area LED ON Time  (UNIX EPOCH)
+#define HW_DY_103_OFT   36        // Seeding Area LED OFF Time  (UNIX EPOCH)
+#define HW_QT_001   38        // Realt-time clock time (UNIX EPOCH)
+#define HW_MY_101_ONP   40        // Fan  120VAC ON Period in sec
+#define HW_MY_101_OFP   41        // Fan  120VAC OFF Period in sec
+#define HW_PY_001_ONP   42        // Circulation Pump 120VAC ON Period in sec
+#define HW_PY_001_OFP   43        // Circulation Pump 120VAC OFF Period in sec
+
+
+#define CW_VY_001A   81        // inlet H20 valve, active low 12VDC
+#define CW_PY_002   82        // Drain Pump 12VDC
+#define CW_KY_001   83        // Reset config to defaults
 
 
 
 
-#define HR_AMBIENT_TEMPERATURE HOLDING_REGISTER_READ_OFFSET
-#define HR_SOIL_MOISTURE	   HR_AMBIENT_TEMPERATURE + 1
-#define HR_LED_DUTY_CYCLE	   HR_SOIL_MOISTURE + 1
-#define HR_LED_DUTY_CYCLE_PERIOD HR_LED_DUTY_CYCLE + 1
-#define HR_CURRENT_TIME			HR_LED_DUTY_CYCLE_PERIOD + 1   // UTC
-#define HR_LED_ON_TIME			HR_CURRENT_TIME + 2
-#define HR_LED_OFF_TIME			HR_LED_ON_TIME + 2
 
-#define HR_SET_TIME				HOLDING_REGISTER_WRITE_OFFSET  // UTC
-#define HR_SET_LED_ON_TIME		HR_SET_TIME + 2
-#define HR_SET_LED_OFF_TIME		HR_SET_LED_ON_TIME + 2
-#define HR_SET_DUTY_CYCLE		HR_SET_LED_OFF_TIME + 2
-#define HR_SET_DUTY_CYCLE_PERIOD HR_SET_DUTY_CYCLE + 1
 
-#define MODBUS_REG_COUNT HOLDING_REGISTER_WRITE_OFFSET + HR_SET_DUTY_CYCLE_PERIOD + 1
 
-// coil write commands
-#define CS_SET_LED_ON			 COIL_STATUS_WRITE_START_BIT //bit position
-#define CS_SET_LED_OFF			 CS_SET_LED_ON + 1
-#define CS_RESET_TO_DEFAULTS	 CS_SET_LED_OFF + 1
-
-// coil statuses
-#define CS_LED_STATUS			COIL_STATUS_READ_WRITE_OFFSET
 
 
 #define MB_SLAVE_ID				1
-#define MB_SERIAL_PORT			0
-
+#define MB_SERIAL_PORT			1
+#define MB_SERIAL_BAUD			19200
 
 
 union
 {
-  int regsf[2];
+  unsigned int regsf[2];
   float val;
 } 
 bfconvert;
@@ -66,7 +80,7 @@ bfconvert;
 
 union
 {
-  int regsl[2];
+  unsigned int regsl[2];
   long val;
 } 
 blconvert;
