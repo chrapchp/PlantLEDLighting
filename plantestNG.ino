@@ -137,6 +137,7 @@ DeviceAddress ambientTemperatureAddress =
   0x28, 0x6F, 0xE3, 0xA0, 0x04, 0x00, 0x00, 0x5A
 };
 
+float TT_001T = NAN;
 DeviceAddress mixtureTemperatureAddress =
 {
   0x28, 0xFF, 0xF4, 0xF6, 0x84, 0x16, 0x05, 0x0C
@@ -177,8 +178,8 @@ DA_HOASwitch HS_103AB = DA_HOASwitch(10, 0, 11); // Growing Chamber LED : HOA : 
 // Discete Outputs
 // DO 35,36 AC spares
 // DO DC 39,41,42,43 spares
-DA_DiscreteOutput DY_102 = DA_DiscreteOutput(31, LOW); // non-flowering LED 120 VAC
-DA_DiscreteOutput DY_103 = DA_DiscreteOutput(32, LOW); // flowering LED 120 VAC
+DA_DiscreteOutput DY_102 = DA_DiscreteOutput(31, LOW); // Seeding LED 120 VAC
+DA_DiscreteOutput DY_103 = DA_DiscreteOutput(32, LOW); // Growing Chamber LED 120 VAC
 DA_DiscreteOutputTmr PY_001 = DA_DiscreteOutputTmr(33, LOW, DEFAULT_CIRCULATION_PUMP_ON_DURATION, DEFAULT_CIRCULATION_PUMP_OFF_DURATION); // Circulation Pump 15 mins on/45 off 120VAC
 DA_DiscreteOutputTmr MY_101 = DA_DiscreteOutputTmr(34, LOW, DEFAULT_FAN_ON_DURATION, DEFAULT_FAN_OFF_DURATION); // Fan, 60 on/60 off 120VAC
 DA_DiscreteOutput VY_001A = DA_DiscreteOutput(37, LOW); // inlet H20 valve, active low 12VDC
@@ -329,7 +330,7 @@ break;
 }
 }
 */
-void on_FloweringLED_Process(DA_HOASwitch::HOADetectType state)
+void on_GrowingChamberLED_Process(DA_HOASwitch::HOADetectType state)
 {
 
 #ifdef PROCESS_TERMINAL
@@ -354,7 +355,7 @@ void on_FloweringLED_Process(DA_HOASwitch::HOADetectType state)
   }
 }
 
-void on_NonFloweringLED_Process(DA_HOASwitch::HOADetectType state)
+void on_SeedingAreaLED_Process(DA_HOASwitch::HOADetectType state)
 {
 
 #ifdef PROCESS_TERMINAL
@@ -519,7 +520,7 @@ void displayHomeScreen(bool clearScreen)
   lcd.setCursor(0, 1);
   lcd << F("Mixture Level:") << _FLOAT(LT_002_PV, 1) << "%";
   lcd.setCursor(0, 2);
-  lcd << F("MT:") << _FLOAT(sensors.getTempC(mixtureTemperatureAddress), 1) << "C ";
+  lcd << F("MT:") << _FLOAT(TT_001T, 1) << "C ";
   lcd << F("AT:") << _FLOAT(AT_101T, 1) << "C";
   lcd.setCursor(0, 3);
   lcd << F("Rel Hum:") << _FLOAT(AT_101H, 1) << "%";
@@ -560,7 +561,7 @@ void displayHOAStatuses(bool clearScreen)
     lcd.clear();
   // lcd.home();
   lcd.setCursor(0, 0);
-  lcd << F("   CPMP  FLED  NLED");
+  lcd << F("   CPMP   GC   SEED");
   lcd.setCursor(0, 1);
   lcd << "H";
   lcd.setCursor(4, 1);
@@ -657,8 +658,8 @@ void setup()
   ;
   HS_001AB.setOnStateChangeDetect(& on_Circulation_Pump_Process);
   // HS_101AB.setOnStateChangeDetect(& on_Fan_Process);
-  HS_102AB.setOnStateChangeDetect(& on_NonFloweringLED_Process);
-  HS_103AB.setOnStateChangeDetect(& on_FloweringLED_Process);
+  HS_102AB.setOnStateChangeDetect(& on_SeedingAreaLED_Process);
+  HS_103AB.setOnStateChangeDetect(& on_GrowingChamberLED_Process);
   // 1-wire
   sensors.begin();
   initOneWire();
@@ -751,6 +752,7 @@ void doOnPoll()
   sensors.requestTemperatures();
   AT_101H = AT_101.readHumidity(); // allow 1/4 sec to read
   AT_101T = AT_101.readTemperature();
+  TT_001T = sensors.getTempC(mixtureTemperatureAddress);
   if (isnan(AT_101H) || isnan(AT_101T))
   {
 
@@ -777,7 +779,7 @@ void doUpdateOutputs()
 
 void doGrowingChamberLightsOn()
 {
-  DY_102.activate(); // if disabled, it won't activate
+  DY_103.activate(); // if disabled, it won't activate
   //DY_103.activate(); // if disabled, it won't activate
 
 #ifdef PROCESS_TERMINAL
@@ -788,7 +790,7 @@ void doGrowingChamberLightsOn()
 
 void doGrowingChamberLightsOff()
 {
-  DY_102.reset();
+  DY_103.reset();
  // DY_103.reset();
 
 #ifdef PROCESS_TERMINAL
@@ -800,7 +802,7 @@ void doGrowingChamberLightsOff()
 
 void doSeedingAreaLightsOn()
 {
-  DY_103.activate(); // if disabled, it won't activate
+  DY_102.activate(); // if disabled, it won't activate
   //DY_103.activate(); // if disabled, it won't activate
 
 #ifdef PROCESS_TERMINAL
@@ -811,7 +813,7 @@ void doSeedingAreaLightsOn()
 
 void doSeedingAreaLightsOff()
 {
-  DY_103.reset();
+  DY_102.reset();
  // DY_103.reset();
 
 #ifdef PROCESS_TERMINAL
@@ -862,28 +864,28 @@ writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET,CS_HS_002,HS_002.getSample());
 writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET,CS_LSHH_002,LSHH_002.getSample());
 writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET,CS_HS_001,HS_001.getSample());
 
-blconvert.val = AT_101H;
+bfconvert.val = AT_101H;
 modbusRegisters[ HR_AT_101 ] = bfconvert.regsf[0];
 modbusRegisters[ HR_AT_101 + 1 ] = bfconvert.regsf[1];
 
-blconvert.val = AT_101T;
+bfconvert.val = AT_101T;
 modbusRegisters[ HR_TT_101 ] = bfconvert.regsf[0];
 modbusRegisters[ HR_TT_101 + 1 ] = bfconvert.regsf[1];
 
-blconvert.val = LT_002_PV;
+bfconvert.val = LT_002_PV;
 modbusRegisters[ HR_LT_002 ] = bfconvert.regsf[0];
 modbusRegisters[ HR_LT_002 + 1 ] = bfconvert.regsf[1];
 
-blconvert.val = FT_002.getCurrentFlowRate();
+bfconvert.val = FT_002.getCurrentFlowRate();
 modbusRegisters[ HR_FT_002 ] = bfconvert.regsf[0];
 modbusRegisters[ HR_FT_002 + 1 ] = bfconvert.regsf[1];
 
-blconvert.val = FT_003.getCurrentFlowRate();
+bfconvert.val = FT_003.getCurrentFlowRate();
 modbusRegisters[ HR_FT_003 ] = bfconvert.regsf[0];
 modbusRegisters[ HR_FT_003 + 1 ] = bfconvert.regsf[1];
 
 
-blconvert.val = sensors.getTempC(mixtureTemperatureAddress);
+bfconvert.val = TT_001T; //sensors.getTempC(mixtureTemperatureAddress);
 modbusRegisters[ HR_TT_001 ] = bfconvert.regsf[0];
 modbusRegisters[ HR_TT_001 + 1 ] = bfconvert.regsf[1];
 
@@ -926,48 +928,66 @@ void setModbusTime()
 
 void setModbusGrowingChamberLightsOnTime()
 {
-  if (modbusRegisters[HW_DY_102_ONT] != 0)
+  if (modbusRegisters[HW_DY_103_ONT] != 0)
   {
-    blconvert.regsl[0] = modbusRegisters[HW_DY_102_ONT];
-    blconvert.regsl[1] = modbusRegisters[HW_DY_102_ONT + 1];
+    blconvert.regsl[0] = modbusRegisters[HW_DY_103_ONT];
+    blconvert.regsl[1] = modbusRegisters[HW_DY_103_ONT + 1];
     growingChamberLightsOffEvent.epoch = alarmTimeToUTC(blconvert.val);
     Alarm.free(growingChamberLightsOffEvent.id);
     growingChamberLightsOffEvent.id = Alarm.alarmRepeat(growingChamberLightsOffEvent.epoch, doGrowingChamberLightsOn);
     EEPROMWriteAlarmEntry(growingChamberLightsOffEvent.epoch, EEPROM_GROWING_CHAMBER_ON_TIME_ADDR);
-    modbusRegisters[HW_DY_102_ONT] = 0;
-    modbusRegisters[HW_DY_102_ONT + 1] = 0;
+    modbusRegisters[HW_DY_103_ONT] = 0;
+    modbusRegisters[HW_DY_103_ONT + 1] = 0;
   }
 }
 
 void setModbusGrowingChamberLightsOffTime()
 {
-  if (modbusRegisters[HW_DY_102_OFT] != 0)
+  if (modbusRegisters[HW_DY_103_OFT] != 0)
   {
-    blconvert.regsl[0] = modbusRegisters[HW_DY_102_OFT];
-    blconvert.regsl[1] = modbusRegisters[HW_DY_102_OFT + 1];
+    blconvert.regsl[0] = modbusRegisters[HW_DY_103_OFT];
+    blconvert.regsl[1] = modbusRegisters[HW_DY_103_OFT + 1];
     growingChamberLightsOnEvent.epoch = alarmTimeToUTC(blconvert.val);
     Alarm.free(growingChamberLightsOnEvent.id);
     growingChamberLightsOnEvent.id = Alarm.alarmRepeat(growingChamberLightsOnEvent.epoch, doGrowingChamberLightsOff);
     EEPROMWriteAlarmEntry(growingChamberLightsOnEvent.epoch, EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR);
-    modbusRegisters[HW_DY_102_OFT] = 0;
-    modbusRegisters[HW_DY_102_OFT + 1] = 0;
+    modbusRegisters[HW_DY_103_OFT] = 0;
+    modbusRegisters[HW_DY_103_OFT + 1] = 0;
   }
 }
 
 void setModbusSeedingAreaLightsOnTime()
 {
-  if (modbusRegisters[HW_DY_103_ONT] != 0)
+  if (modbusRegisters[HW_DY_102_ONT] != 0)
   {
-    blconvert.regsl[0] = modbusRegisters[HW_DY_103_ONT];
-    blconvert.regsl[1] = modbusRegisters[HW_DY_103_ONT + 1];
+    blconvert.regsl[0] = modbusRegisters[HW_DY_102_ONT];
+    blconvert.regsl[1] = modbusRegisters[HW_DY_102_ONT + 1];
     seedingAreaLightsOnEvent.epoch = alarmTimeToUTC(blconvert.val);
     Alarm.free(seedingAreaLightsOnEvent.id);
     seedingAreaLightsOnEvent.id = Alarm.alarmRepeat(seedingAreaLightsOnEvent.epoch, doSeedingAreaLightsOn);
-    EEPROMWriteAlarmEntry(seedingAreaLightsOnEvent.epoch, EEPROM_GROWING_CHAMBER_ON_TIME_ADDR);
-    modbusRegisters[HW_DY_103_ONT] = 0;
-    modbusRegisters[HW_DY_103_ONT + 1] = 0;
+    EEPROMWriteAlarmEntry(seedingAreaLightsOnEvent.epoch, EEPROM_SEEDING_AREA_ON_TIME_ADDR);
+    modbusRegisters[HW_DY_102_ONT] = 0;
+    modbusRegisters[HW_DY_102_ONT + 1] = 0;
   }
 }
+
+
+
+void setModbusSeedingAreaLightsOffTime()
+{
+  if (modbusRegisters[HW_DY_102_OFT] != 0)
+  {
+    blconvert.regsl[0] = modbusRegisters[HW_DY_102_OFT];
+    blconvert.regsl[1] = modbusRegisters[HW_DY_102_OFT + 1];
+    seedingAreaLightsOffEvent.epoch = alarmTimeToUTC(blconvert.val);
+    Alarm.free(seedingAreaLightsOffEvent.id);
+    seedingAreaLightsOffEvent.id = Alarm.alarmRepeat(seedingAreaLightsOffEvent.epoch, doSeedingAreaLightsOff);
+    EEPROMWriteAlarmEntry(seedingAreaLightsOffEvent.epoch, EEPROM_SEEDING_AREA_OFF_TIME_ADDR);
+    modbusRegisters[HW_DY_102_OFT] = 0;
+    modbusRegisters[HW_DY_102_OFT + 1] = 0;
+  }
+}
+
 
 void setModbusFanOnDuration()
 {
@@ -1025,20 +1045,6 @@ void setModbusCirculationPumpOffDuration()
 
 
 
-void setModbusSeedingAreaLightsOffTime()
-{
-  if (modbusRegisters[HW_DY_103_OFT] != 0)
-  {
-    blconvert.regsl[0] = modbusRegisters[HW_DY_103_OFT];
-    blconvert.regsl[1] = modbusRegisters[HW_DY_103_OFT + 1];
-    seedingAreaLightsOffEvent.epoch = alarmTimeToUTC(blconvert.val);
-    Alarm.free(seedingAreaLightsOffEvent.id);
-    seedingAreaLightsOffEvent.id = Alarm.alarmRepeat(seedingAreaLightsOffEvent.epoch, doSeedingAreaLightsOff);
-    EEPROMWriteAlarmEntry(seedingAreaLightsOffEvent.epoch, EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR);
-    modbusRegisters[HW_DY_103_OFT] = 0;
-    modbusRegisters[HW_DY_103_OFT + 1] = 0;
-  }
-}
 void setConfigToDefaults()
 {
   if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_KY_001))
