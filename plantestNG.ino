@@ -76,7 +76,8 @@ const unsigned long DEFAULT_TIME = 976492800;
 #define BUILD   2
 
 // comment out to not include terminal processing
-// #define PROCESS_TERMINAL
+ //#define PROCESS_TERMINAL
+HardwareSerial *tracePort = & Serial;
 // comment out to not implement modbus
  #define PROCESS_MODBUS
 // refresh intervals
@@ -123,6 +124,8 @@ LCDScreen * currentScreen;
 LCDScreen firstScreen;
 LCDScreen secondScreen;
 LCDScreen thirdScreen;
+LCDScreen fourthScreen;
+
 // DHT-22 - one wire type humidity sensor (won't work with one wire lib)
 #define DHT_BUS_PIN 5
 DHT AT_101 = DHT(DHT_BUS_PIN, DHT22);
@@ -161,6 +164,17 @@ NewPing LT_002(15, 16, NUTRIENT_TANK_HEIGHT); // Water Level
 float LT_002_PV = 0.0; // Water Level present value in cm from top,  0-> undefined
 float LT_002_PV_Prev = 0.0; // Water Level previous value
 
+// Discete Outputs
+// DO 35,36 AC spares
+// DO DC 39,41,42,43 spares
+DA_DiscreteOutput DY_102 = DA_DiscreteOutput(31, LOW); // Seeding LED 120 VAC
+DA_DiscreteOutput DY_103 = DA_DiscreteOutput(32, LOW); // Growing Chamber LED 120 VAC
+DA_DiscreteOutputTmr PY_001 = DA_DiscreteOutputTmr(33, LOW, DEFAULT_CIRCULATION_PUMP_ON_DURATION, DEFAULT_CIRCULATION_PUMP_OFF_DURATION); // Circulation Pump 15 mins on/45 off 120VAC
+DA_DiscreteOutputTmr MY_101 = DA_DiscreteOutputTmr(34, LOW, DEFAULT_FAN_ON_DURATION, DEFAULT_FAN_OFF_DURATION); // Fan, 60 on/60 off 120VAC
+DA_DiscreteOutput VY_001A = DA_DiscreteOutput(37, LOW); // inlet H20 valve, active low 12VDC
+DA_DiscreteOutput PY_002 = DA_DiscreteOutput(38, LOW); // Drain Pump 12VDC
+
+
 
 // Discrete Inputs
 DA_DiscreteInput LSHH_002 = DA_DiscreteInput(51, DA_DiscreteInput::ToggleDetect, true); // nutrient mixture hi-hi level switch
@@ -175,17 +189,8 @@ DA_HOASwitch HS_001AB = DA_HOASwitch(7, 0, 8); // Circulation Pump Hand Status :
 DA_HOASwitch HS_102AB = DA_HOASwitch(52, 0, 53); // Seeding Area LED : HOA : Hand/Auto
 DA_HOASwitch HS_103AB = DA_HOASwitch(10, 0, 11); // Growing Chamber LED : HOA : Hand/Auto
 
-// Discete Outputs
-// DO 35,36 AC spares
-// DO DC 39,41,42,43 spares
-DA_DiscreteOutput DY_102 = DA_DiscreteOutput(31, LOW); // Seeding LED 120 VAC
-DA_DiscreteOutput DY_103 = DA_DiscreteOutput(32, LOW); // Growing Chamber LED 120 VAC
-DA_DiscreteOutputTmr PY_001 = DA_DiscreteOutputTmr(33, LOW, DEFAULT_CIRCULATION_PUMP_ON_DURATION, DEFAULT_CIRCULATION_PUMP_OFF_DURATION); // Circulation Pump 15 mins on/45 off 120VAC
-DA_DiscreteOutputTmr MY_101 = DA_DiscreteOutputTmr(34, LOW, DEFAULT_FAN_ON_DURATION, DEFAULT_FAN_OFF_DURATION); // Fan, 60 on/60 off 120VAC
-DA_DiscreteOutput VY_001A = DA_DiscreteOutput(37, LOW); // inlet H20 valve, active low 12VDC
-DA_DiscreteOutput PY_002 = DA_DiscreteOutput(38, LOW); // Drain Pump 12VDC
 
-HardwareSerial *tracePort = & Serial2;
+
 
 TimeChangeRule usMDT =
 {
@@ -292,14 +297,22 @@ void on_Circulation_Pump_Process(DA_HOASwitch::HOADetectType state)
   switch (state)
   {
     case DA_HOASwitch::Hand:
+
       PY_001.disable();
-      PY_001.forceActive(); // force the fan on
+      PY_001.forceActive(); // force the pump on
+      PY_001.pauseTimer();
+     
       break;
     case DA_HOASwitch::Off:
+      PY_001.pauseTimer();
       PY_001.disable();
+
       break;
     case DA_HOASwitch::Auto:
       PY_001.enable();
+      PY_001.resumeTimer();
+      //PY_001.restart();
+      //PY_001.resume();
       break;
     default:
       break;
@@ -509,6 +522,7 @@ void displayDateTime()
 
 void displayHomeScreen(bool clearScreen)
 {
+    char sprintfBuf[ 6 ];
   // RTC.set(1511196565); // set the RTC and the system time to the received value
   // setTime(1511196565);
   if (clearScreen)
@@ -531,10 +545,16 @@ void displayHomeScreen(bool clearScreen)
   *tracePort << "HT-101: " << "Rel Humidity:" << AT_101H << " % Temperature:" << AT_101T;
   *tracePort << " C Heat Index " << AT_101HI << endl;
   * */
+     #ifdef PROCESS_TERMINAL
+  *tracePort << "on_Circulation_Pump_Process On Time:" << PY_001.getCurrentOnDuration()/1000 << endl;
+  *tracePort << "on_Circulation_Pump_Process Off Time:" << PY_001.getCurrentOffDuration()/1000 << endl;
+  #endif
+
 }
 
 void displayMiscStatuses(bool clearScreen)
 {
+
   if (clearScreen)
     lcd.clear();
   lcd.setCursor(0, 0);
@@ -557,6 +577,8 @@ void displayMiscStatuses(bool clearScreen)
 
 void displayHOAStatuses(bool clearScreen)
 {
+
+
   if (clearScreen)
     lcd.clear();
   // lcd.home();
@@ -588,6 +610,44 @@ void displayHOAStatuses(bool clearScreen)
   lcd << ((HS_102AB.getCurrentState() == DA_HOASwitch::Auto)? "X":" ");
 }
 
+
+void displayTimerStatuses(bool clearScreen)
+{
+  char sprintfBuf[ 6 ];
+  
+
+
+  if (clearScreen)
+    lcd.clear();
+  // lcd.home();
+  lcd.setCursor(0, 0);
+  lcd << F("Timers  On    Off");
+  lcd.setCursor(0, 1);
+  
+  lcd << "MY-101:";
+  lcd.setCursor(7, 1);
+  sprintf( sprintfBuf, "%05d", MY_101.getCurrentOnDuration() / 1000 );
+  lcd << sprintfBuf ;
+
+  lcd.setCursor(13, 1);
+  sprintf( sprintfBuf, "%05d", MY_101.getCurrentOffDuration() / 1000 );
+  lcd << sprintfBuf ;
+
+  lcd.setCursor(0, 2);
+  lcd << "PY-101:";
+
+  lcd.setCursor(7, 2);
+  sprintf( sprintfBuf, "%05d", PY_001.getCurrentOnDuration() / 1000 );
+  lcd << sprintfBuf ;
+
+  lcd.setCursor(13, 2);
+  sprintf( sprintfBuf, "%05d", PY_001.getCurrentOffDuration() / 1000 );
+  lcd << sprintfBuf ;
+
+
+
+}
+
 void setupLCD()
 {
   lcd.begin(20, 4);
@@ -605,7 +665,12 @@ void setupLCDScreens()
   secondScreen.nextScreen = & thirdScreen;
   thirdScreen.displayFunc = displayMiscStatuses;
   thirdScreen.previousScreen = & secondScreen;
-  thirdScreen.nextScreen = & firstScreen;
+  thirdScreen.nextScreen = & fourthScreen;
+  fourthScreen.displayFunc = displayTimerStatuses;
+  fourthScreen.previousScreen = & thirdScreen;
+  fourthScreen.nextScreen = & firstScreen;
+
+
   currentScreen = & firstScreen;
 }
 
@@ -628,7 +693,7 @@ void setup()
   // InletValve
   // 
   // 
-  onRefreshAnalogs.id = Alarm.timerRepeat(POLL_CYCLE_SECONDS, doOnPoll);
+  onRefreshAnalogs.id = Alarm.timerRepeat(POLL_CYCLE_SECONDS, do_ONP_SPoll);
   onFlowCalc.id = Alarm.timerRepeat(FLOW_CALC_PERIOD_SECONDS, doOnCalcFlowRate);
   onMidnight.epoch = alarmTimeToUTC(DEFAULT_RESET_TIME);
   onMidnight.id = Alarm.alarmRepeat(onMidnight.epoch, doOnMidnight);
@@ -736,7 +801,7 @@ void doOnCalcFlowRate()
 }
 
 // update sonar and 1-wire DHT-22 readings
-void doOnPoll()
+void do_ONP_SPoll()
 {
   float tLevel = 0.0;
   unsigned int distanceCM = LT_002.ping() / US_ROUNDTRIP_CM - NUTRIENT_TANK_AIR_GAP;
@@ -895,6 +960,14 @@ modbusRegisters[HR_HS_102HOA] = HS_102AB.getCurrentState();
 modbusRegisters[HR_HS_103HOA] = HS_103AB.getCurrentState();
 modbusRegisters[HR_KY_002] = VERSION;
 
+//modbusRegisters[HW_DY_102_ONP_CV] = 
+//modbusRegisters[HW_DY_102_OFP_CV] = 
+//modbusRegisters[HW_DY_103_ONP_CV] = 
+//modbusRegisters[HW_DY_103_OFP_CV] = 
+modbusRegisters[HW_MY_101_ONP_CV] = MY_101.getCurrentOnDuration() / 1000;
+modbusRegisters[HW_MY_101_OFP_CV] = MY_101.getCurrentOffDuration() / 1000;
+modbusRegisters[HW_PY_001_ONP_CV] = PY_001.getCurrentOnDuration() / 1000;
+modbusRegisters[HW_PY_001_OFP_CV] = PY_001.getCurrentOffDuration() / 1000;
 
 
 
@@ -928,46 +1001,46 @@ void setModbusTime()
 
 void setModbusGrowingChamberLightsOnTime()
 {
-  if (modbusRegisters[HW_DY_103_ONT] != 0)
+  if (modbusRegisters[HW_DY_103_ONT_SP] != 0)
   {
-    blconvert.regsl[0] = modbusRegisters[HW_DY_103_ONT];
-    blconvert.regsl[1] = modbusRegisters[HW_DY_103_ONT + 1];
+    blconvert.regsl[0] = modbusRegisters[HW_DY_103_ONT_SP];
+    blconvert.regsl[1] = modbusRegisters[HW_DY_103_ONT_SP + 1];
     growingChamberLightsOffEvent.epoch = alarmTimeToUTC(blconvert.val);
     Alarm.free(growingChamberLightsOffEvent.id);
     growingChamberLightsOffEvent.id = Alarm.alarmRepeat(growingChamberLightsOffEvent.epoch, doGrowingChamberLightsOn);
     EEPROMWriteAlarmEntry(growingChamberLightsOffEvent.epoch, EEPROM_GROWING_CHAMBER_ON_TIME_ADDR);
-    modbusRegisters[HW_DY_103_ONT] = 0;
-    modbusRegisters[HW_DY_103_ONT + 1] = 0;
+    modbusRegisters[HW_DY_103_ONT_SP] = 0;
+    modbusRegisters[HW_DY_103_ONT_SP + 1] = 0;
   }
 }
 
 void setModbusGrowingChamberLightsOffTime()
 {
-  if (modbusRegisters[HW_DY_103_OFT] != 0)
+  if (modbusRegisters[HW_DY_103_OFT_SP] != 0)
   {
-    blconvert.regsl[0] = modbusRegisters[HW_DY_103_OFT];
-    blconvert.regsl[1] = modbusRegisters[HW_DY_103_OFT + 1];
+    blconvert.regsl[0] = modbusRegisters[HW_DY_103_OFT_SP];
+    blconvert.regsl[1] = modbusRegisters[HW_DY_103_OFT_SP + 1];
     growingChamberLightsOnEvent.epoch = alarmTimeToUTC(blconvert.val);
     Alarm.free(growingChamberLightsOnEvent.id);
     growingChamberLightsOnEvent.id = Alarm.alarmRepeat(growingChamberLightsOnEvent.epoch, doGrowingChamberLightsOff);
     EEPROMWriteAlarmEntry(growingChamberLightsOnEvent.epoch, EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR);
-    modbusRegisters[HW_DY_103_OFT] = 0;
-    modbusRegisters[HW_DY_103_OFT + 1] = 0;
+    modbusRegisters[HW_DY_103_OFT_SP] = 0;
+    modbusRegisters[HW_DY_103_OFT_SP + 1] = 0;
   }
 }
 
 void setModbusSeedingAreaLightsOnTime()
 {
-  if (modbusRegisters[HW_DY_102_ONT] != 0)
+  if (modbusRegisters[HW_DY_102_ONT_SP] != 0)
   {
-    blconvert.regsl[0] = modbusRegisters[HW_DY_102_ONT];
-    blconvert.regsl[1] = modbusRegisters[HW_DY_102_ONT + 1];
+    blconvert.regsl[0] = modbusRegisters[HW_DY_102_ONT_SP];
+    blconvert.regsl[1] = modbusRegisters[HW_DY_102_ONT_SP + 1];
     seedingAreaLightsOnEvent.epoch = alarmTimeToUTC(blconvert.val);
     Alarm.free(seedingAreaLightsOnEvent.id);
     seedingAreaLightsOnEvent.id = Alarm.alarmRepeat(seedingAreaLightsOnEvent.epoch, doSeedingAreaLightsOn);
     EEPROMWriteAlarmEntry(seedingAreaLightsOnEvent.epoch, EEPROM_SEEDING_AREA_ON_TIME_ADDR);
-    modbusRegisters[HW_DY_102_ONT] = 0;
-    modbusRegisters[HW_DY_102_ONT + 1] = 0;
+    modbusRegisters[HW_DY_102_ONT_SP] = 0;
+    modbusRegisters[HW_DY_102_ONT_SP + 1] = 0;
   }
 }
 
@@ -975,29 +1048,29 @@ void setModbusSeedingAreaLightsOnTime()
 
 void setModbusSeedingAreaLightsOffTime()
 {
-  if (modbusRegisters[HW_DY_102_OFT] != 0)
+  if (modbusRegisters[HW_DY_102_OFT_SP] != 0)
   {
-    blconvert.regsl[0] = modbusRegisters[HW_DY_102_OFT];
-    blconvert.regsl[1] = modbusRegisters[HW_DY_102_OFT + 1];
+    blconvert.regsl[0] = modbusRegisters[HW_DY_102_OFT_SP];
+    blconvert.regsl[1] = modbusRegisters[HW_DY_102_OFT_SP + 1];
     seedingAreaLightsOffEvent.epoch = alarmTimeToUTC(blconvert.val);
     Alarm.free(seedingAreaLightsOffEvent.id);
     seedingAreaLightsOffEvent.id = Alarm.alarmRepeat(seedingAreaLightsOffEvent.epoch, doSeedingAreaLightsOff);
     EEPROMWriteAlarmEntry(seedingAreaLightsOffEvent.epoch, EEPROM_SEEDING_AREA_OFF_TIME_ADDR);
-    modbusRegisters[HW_DY_102_OFT] = 0;
-    modbusRegisters[HW_DY_102_OFT + 1] = 0;
+    modbusRegisters[HW_DY_102_OFT_SP] = 0;
+    modbusRegisters[HW_DY_102_OFT_SP + 1] = 0;
   }
 }
 
 
 void setModbusFanOnDuration()
 {
-  if (modbusRegisters[HW_MY_101_ONP] != 0)
+  if (modbusRegisters[HW_MY_101_ONP_SP] != 0)
   {
 
-    MY_101.setOnDuration(modbusRegisters[HW_MY_101_ONP] );
+    MY_101.setOnDuration(modbusRegisters[HW_MY_101_ONP_SP] );
     
-    EEPROMWriteDuration(modbusRegisters[HW_MY_101_ONP], EEPROM_FAN_ON_DURATION_ADDR);
-    modbusRegisters[HW_MY_101_ONP] = 0;
+    EEPROMWriteDuration(modbusRegisters[HW_MY_101_ONP_SP], EEPROM_FAN_ON_DURATION_ADDR);
+    modbusRegisters[HW_MY_101_ONP_SP] = 0;
 
   }
 }
@@ -1005,39 +1078,39 @@ void setModbusFanOnDuration()
 
 void setModbusFanOffDuration()
 {
-  if (modbusRegisters[HW_MY_101_OFP] != 0)
+  if (modbusRegisters[HW_MY_101_OFP_SP] != 0)
   {
 
-    MY_101.setOffDuration( modbusRegisters[HW_MY_101_OFP] );
-    EEPROMWriteDuration(modbusRegisters[HW_MY_101_OFP], EEPROM_FAN_OFF_DURATION_ADDR);
-    modbusRegisters[HW_MY_101_ONP] = 0;
+    MY_101.setOffDuration( modbusRegisters[HW_MY_101_OFP_SP] );
+    EEPROMWriteDuration(modbusRegisters[HW_MY_101_OFP_SP], EEPROM_FAN_OFF_DURATION_ADDR);
+    modbusRegisters[HW_MY_101_ONP_SP] = 0;
 
   }
 }
 
-void setModbusCirculationPumpOnDuration()
+void setModbusCirculati_ONP_SPumpOnDuration()
 {
-  if (modbusRegisters[HW_PY_001_ONP] != 0)
+  if (modbusRegisters[HW_PY_001_ONP_SP] != 0)
   {
 
-    PY_001.setOnDuration(modbusRegisters[HW_PY_001_ONP] );
+    PY_001.setOnDuration(modbusRegisters[HW_PY_001_ONP_SP] );
     
-    EEPROMWriteDuration(modbusRegisters[HW_PY_001_ONP], EEPROM_CIRCULATION_PUMP_ON_DURATION_ADDR);
-    modbusRegisters[HW_PY_001_ONP] = 0;
+    EEPROMWriteDuration(modbusRegisters[HW_PY_001_ONP_SP], EEPROM_CIRCULATION_PUMP_ON_DURATION_ADDR);
+    modbusRegisters[HW_PY_001_ONP_SP] = 0;
 
   }
 }
 
 
-void setModbusCirculationPumpOffDuration()
+void setModbusCirculati_ONP_SPumpOffDuration()
 {
-  if (modbusRegisters[HW_PY_001_OFP] != 0)
+  if (modbusRegisters[HW_PY_001_OFP_SP] != 0)
   {
 
-    PY_001.setOffDuration(modbusRegisters[HW_PY_001_OFP] );
+    PY_001.setOffDuration(modbusRegisters[HW_PY_001_OFP_SP] );
     
-    EEPROMWriteDuration(modbusRegisters[HW_PY_001_OFP], EEPROM_CIRCULATION_PUMP_OFF_DURATION_ADDR);
-    modbusRegisters[HW_PY_001_OFP] = 0;
+    EEPROMWriteDuration(modbusRegisters[HW_PY_001_OFP_SP], EEPROM_CIRCULATION_PUMP_OFF_DURATION_ADDR);
+    modbusRegisters[HW_PY_001_OFP_SP] = 0;
 
   }
 }
@@ -1077,8 +1150,8 @@ void processModbusCommands()
   setModbusFanOnDuration();
   setModbusFanOffDuration();
 
-  setModbusCirculationPumpOnDuration();
-  setModbusCirculationPumpOffDuration();
+  setModbusCirculati_ONP_SPumpOnDuration();
+  setModbusCirculati_ONP_SPumpOffDuration();
   //setModbusLightsOff();
   setConfigToDefaults();
 }
