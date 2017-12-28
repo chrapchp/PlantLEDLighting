@@ -38,6 +38,12 @@
 #define CW_DY_103_ON   86        // Force Growing Chamber Lights On IFF in auto
 #define CW_DY_103_OFF   87        // Force Growing Chamber Lights Off IFF in auto
 
+// DO but only read status
+#define CW_DY_102   88        // Seeding Area LED 120 VAC 
+#define CW_DY_103   89        // Growing Chamber LED 120 VAC
+#define CW_PY_001   90        // Circulation Pump 120VAC
+#define CW_MY_101   91        // Fan, 60 on/60 off 120VAC
+
 
 
 
