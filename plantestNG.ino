@@ -968,6 +968,11 @@ void refreshModbusRegisters()
 writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET,CS_HS_002,HS_002.getSample());
 writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET,CS_LSHH_002,LSHH_002.getSample());
 writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET,CS_HS_001,HS_001.getSample());
+writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET,CW_DY_102,DY_102.isActive());
+writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET,CW_DY_103,DY_103.isActive());
+writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET,CW_PY_001,PY_001.isActive());
+writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET,CW_MY_101,MY_101.isActive());
+
 
 bfconvert.val = AT_101H;
 modbusRegisters[ HR_AT_101 ] = bfconvert.regsf[0];
@@ -1021,6 +1026,8 @@ modbusRegisters[HW_MY_101_ONP_CV] = MY_101.getCurrentOnDuration() / 1000;
 modbusRegisters[HW_MY_101_OFP_CV] = MY_101.getCurrentOffDuration() / 1000;
 modbusRegisters[HW_PY_001_ONP_CV] = PY_001.getCurrentOnDuration() / 1000;
 modbusRegisters[HW_PY_001_OFP_CV] = PY_001.getCurrentOffDuration() / 1000;
+
+
 
 
 
