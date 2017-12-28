@@ -33,6 +33,14 @@
 #define CW_PY_002   82        // Drain Pump 12VDC
 #define CW_KY_001   83        // Reset config to defaults
 
+#define CW_DY_102_ON   84        // Force Seeding Area lights On IFF in auto
+#define CW_DY_102_OFF   85        // ForceSeeding Area lights Off IFF in auto
+#define CW_DY_103_ON   86        // Force Growing Chamber Lights On IFF in auto
+#define CW_DY_103_OFF   87        // Force Growing Chamber Lights Off IFF in auto
+
+
+
+
 #define HR_AT_101   10        // Ambient relative humidity
 #define HR_TT_101   12        // Abient Temperature
 #define HR_LT_002   14        // Water Level present value in cm from top,  0-> undefined

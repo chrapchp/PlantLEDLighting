@@ -57,7 +57,7 @@
  
 
 // #define HOST_COMMAND_CHECK_INTERVAL  1000
-#define ALARM_REFRESH_INTERVAL 80
+#define ALARM_REFRESH_INTERVAL 50
 
 const unsigned long DEFAULT_TIME = 976492800;
 
@@ -73,7 +73,7 @@ const unsigned long DEFAULT_TIME = 976492800;
 #define EEPROM_CIRCULATION_PUMP_OFF_DURATION_ADDR EEPROM_CIRCULATION_PUMP_ON_DURATION_ADDR + sizeof (unsigned int)
 
 #define VERSION 101 // imlied two decimal
-#define BUILD   2
+
 
 // comment out to not include terminal processing
 //#define PROCESS_TERMINAL
@@ -1168,8 +1168,45 @@ void setModbusCirculationPumpOffDuration()
   }
 }
 
+// force on or off if only in Auto
+void setModbusForceSeedingAreaLightsOn()
+{
+  if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_DY_102_ON))
+  {
+    DY_102.activate();
+    writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_DY_102_ON, false);
+  }
+}
 
+// force on or off if only in Auto
+void setModbusForceSeedingAreaLightsOff()
+{
+  if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_DY_102_OFF))
+  {
+    DY_102.reset();
+    writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_DY_102_OFF, false);
+  }
+}
 
+// force on or off if only in Auto
+void setModbusForceGrowingChamberLightsOn()
+{
+  if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_DY_103_ON))
+  {
+    DY_103.activate();
+    writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_DY_103_ON, false);
+  }
+}
+
+// force on or off if only in Auto
+void setModbusForceGrowingChamberLightsOff()
+{
+  if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_DY_103_OFF))
+  {
+    DY_103.reset();
+    writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_DY_103_OFF, false);
+  }
+}
 
 void setConfigToDefaults()
 {
@@ -1207,6 +1244,10 @@ void processModbusCommands()
   setModbusCirculationPumpOffDuration();
   //setModbusLightsOff();
   setConfigToDefaults();
+  setModbusForceGrowingChamberLightsOn();
+  setModbusForceGrowingChamberLightsOff();
+  setModbusForceSeedingAreaLightsOn();  
+  setModbusForceSeedingAreaLightsOff();
 }
 
 /*
