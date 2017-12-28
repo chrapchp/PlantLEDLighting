@@ -45,7 +45,7 @@
 #include <DA_DiscreteOutputTmr.h>
 #include <DA_HOASwitch.h>
 #include "PlantModbus.h"
-#define DEFAULT_LIGHTS_ON_ALARM_TIME AlarmHMS (7, 0, 0)
+#define DEFAULT_LIGHTS_ON_ALARM_TIME AlarmHMS (5, 0, 0)
 #define DEFAULT_LIGHTS_OFF_ALARM_TIME AlarmHMS (23, 0, 0)
 #define DEFAULT_RESET_TIME AlarmHMS(0, 0, 0) // midnight
 #define DEFAULT_CIRCULATION_PUMP_ON_DURATION 15 * 60 // 15 min * 60 s
@@ -53,8 +53,8 @@
 #define DEFAULT_FAN_ON_DURATION 30 * 60 // 30 min * 60 s
 #define DEFAULT_FAN_OFF_DURATION 30 * 60 // 30 min * 60 s
 
-
-
+#define STRLEN(s) (sizeof(s)/sizeof(s[0]))
+ 
 
 // #define HOST_COMMAND_CHECK_INTERVAL  1000
 #define ALARM_REFRESH_INTERVAL 80
@@ -72,11 +72,12 @@ const unsigned long DEFAULT_TIME = 976492800;
 #define EEPROM_CIRCULATION_PUMP_ON_DURATION_ADDR EEPROM_FAN_OFF_DURATION_ADDR + sizeof (unsigned int)
 #define EEPROM_CIRCULATION_PUMP_OFF_DURATION_ADDR EEPROM_CIRCULATION_PUMP_ON_DURATION_ADDR + sizeof (unsigned int)
 
-#define VERSION 100 // imlied two decimal
+#define VERSION 101 // imlied two decimal
 #define BUILD   2
 
 // comment out to not include terminal processing
- //#define PROCESS_TERMINAL
+//#define PROCESS_TERMINAL
+//#define PROCESS_TERMINAL_VERBOSE
 HardwareSerial *tracePort = & Serial;
 // comment out to not implement modbus
  #define PROCESS_MODBUS
@@ -125,6 +126,7 @@ LCDScreen firstScreen;
 LCDScreen secondScreen;
 LCDScreen thirdScreen;
 LCDScreen fourthScreen;
+LCDScreen fifthScreen;
 
 // DHT-22 - one wire type humidity sensor (won't work with one wire lib)
 #define DHT_BUS_PIN 5
@@ -194,12 +196,12 @@ DA_HOASwitch HS_103AB = DA_HOASwitch(10, 0, 11); // Growing Chamber LED : HOA : 
 
 TimeChangeRule usMDT =
 {
-  "MDT", Second, dowSunday, Mar, 2, -360
+  "MDT", Second, dowSunday, Mar, 12, -360
 };
 
 TimeChangeRule usMST =
 {
-  "MST", First, dowSunday, Nov, 2, -420
+  "MST", First, dowSunday, Nov, 5, -420
 };
 
 Timezone usMT(usMDT, usMST);
@@ -236,7 +238,8 @@ note LSHH is high on high level (fail safe )
 void on_InletValve_Process(bool state)
 {
 
-#ifdef PROCESS_TERMINAL
+
+#ifdef PROCESS_TERMINAL_VERBOSE
   *tracePort << "on_InletValve_Process HS_002, LSHH_002" << endl;
   HS_002.serialize(tracePort, true);
   LSHH_002.serialize(tracePort, true);
@@ -263,7 +266,7 @@ void on_LCD_Previous_Screen(bool state)
 void on_LCD_Enter(bool state)
 {
 
-#ifdef PROCESS_TERMINAL
+#ifdef PROCESS_TERMINAL_VERBOSE
   *tracePort << "TO DO: LCD Enter HS_003C" << endl;
   HS_003C.serialize(tracePort, true);
 #endif
@@ -273,7 +276,7 @@ void on_LCD_Enter(bool state)
 void on_DrainPump_Process(bool state)
 {
 
-#ifdef PROCESS_TERMINAL
+#ifdef PROCESS_TERMINAL_VERBOSE
   *tracePort << "on_DrainPump_Process HS_001" << endl;
   HS_001.serialize(tracePort, true);
 #endif
@@ -289,7 +292,7 @@ void on_DrainPump_Process(bool state)
 void on_Circulation_Pump_Process(DA_HOASwitch::HOADetectType state)
 {
 
-#ifdef PROCESS_TERMINAL
+#ifdef PROCESS_TERMINAL_VERBOSE
   *tracePort << "on_Circulation_Pump_Process HS_001AB" << endl;
   HS_001AB.serialize(tracePort, true);
 #endif
@@ -298,9 +301,10 @@ void on_Circulation_Pump_Process(DA_HOASwitch::HOADetectType state)
   {
     case DA_HOASwitch::Hand:
 
+      PY_001.pauseTimer();
       PY_001.disable();
       PY_001.forceActive(); // force the pump on
-      PY_001.pauseTimer();
+
      
       break;
     case DA_HOASwitch::Off:
@@ -346,7 +350,7 @@ break;
 void on_GrowingChamberLED_Process(DA_HOASwitch::HOADetectType state)
 {
 
-#ifdef PROCESS_TERMINAL
+#ifdef PROCESS_TERMINAL_VERBOSE
   *tracePort << "on_FlowingLED_Process HS_103AB" << endl;
   HS_103AB.serialize(tracePort, true);
 #endif
@@ -371,7 +375,7 @@ void on_GrowingChamberLED_Process(DA_HOASwitch::HOADetectType state)
 void on_SeedingAreaLED_Process(DA_HOASwitch::HOADetectType state)
 {
 
-#ifdef PROCESS_TERMINAL
+#ifdef PROCESS_TERMINAL_VERBOSE
   *tracePort << "on_NonFlowingLED_Process HS_102AB" << endl;
   HS_102AB.serialize(tracePort, true);
 #endif
@@ -401,8 +405,10 @@ void setupRTC()
   {
 
 #ifdef PROCESS_TERMINAL
-    *tracePort << F("Unable to sync with the RTC") << endl;
+    *tracePort << F("Unable to sync with the RTC-setting to default") << endl;
 #endif
+        RTC.set(DEFAULT_TIME); // set the RTC and the system time to the received value
+    setTime(DEFAULT_TIME); // Sync Arduino clock to the time received on the Serial2 port
 
   }
   else
@@ -457,74 +463,43 @@ void doLCDSplashScreen()
   lcd.setCursor(6, 2);
   lcd << F("Peter C");
   lcd.setCursor(8, 3);
-  lcd << VERSION;
+  lcd << _FLOAT(VERSION/100.0, 2);
   delay(2000);
   lcd.clear();
 }
 
-void printDigits(int digits)
+void timeToBuffer( time_t aTime, char *buffer )
 {
-  if (digits < 10)
-  {
+  sprintf(buffer, "%02d:%02d:%02d", hour(aTime),minute(aTime), second(aTime) );
 
-#ifdef PROCESS_TERMINAL
-    *tracePort << '0';
-    *tracePort << digits;
-    *tracePort << ":";
-#endif
-
-    lcd << F("0");
-  }
-  lcd << digits;
 }
 
-void displayTime(time_t aTime, char * timeZone)
+void dateTimeToBuffer( time_t aTime, char *buffer )
 {
-  printDigits(hour(aTime));
-  lcd << ":";
-  printDigits(minute(aTime));
-  // lcd << ":";
-  // printDigits(second(aTime));
-}
 
-void displayDate(time_t aTime)
-{
-  // lcd << " " << timeZone << " ";
-  // lcd << dayStr(weekday(aTime)) << " ";
-  // lcd << monthShortStr(month(aTime)) << " ";
-  printDigits(month(aTime));
-  lcd << "/";
-  printDigits(day(aTime));
-  lcd << "/" << year(aTime) << " ";
-
-#ifdef PROCESS_TERMINAL
-  *tracePort << dayStr(weekday(aTime)) << " ";
-  *tracePort << monthShortStr(month(aTime)) << " ";
-  *tracePort << day(aTime) << " " << year(aTime) << endl;
-#endif
+ sprintf(buffer, "%02d/%02d/%04d %02d:%02d", month(aTime), day(aTime), year(aTime),hour(aTime),minute(aTime)  );
 
 }
 
 void displayDateTime()
 {
+  
+  char buffer[ STRLEN("MM/DD/YYYY HH:MM")];
   if (timeStatus() != timeNotSet)
   {
     TimeChangeRule * tcr; // pointer to the time change rule, use to get the TZ abbrev
     time_t atime;
     atime = now();
-    // printDateTime(atime, "UTC");
     atime = usMT.toLocal(atime, & tcr);
-    displayDate(atime);
-    // lcd.setCursor(0,1);
-    displayTime(atime, tcr -> abbrev);
+    dateTimeToBuffer( atime, buffer );
+    lcd << buffer;
   }
 }
 
 void displayHomeScreen(bool clearScreen)
 {
-    char sprintfBuf[ 6 ];
-  // RTC.set(1511196565); // set the RTC and the system time to the received value
-  // setTime(1511196565);
+
+
   if (clearScreen)
     lcd.clear();
   lcd.home();
@@ -545,10 +520,8 @@ void displayHomeScreen(bool clearScreen)
   *tracePort << "HT-101: " << "Rel Humidity:" << AT_101H << " % Temperature:" << AT_101T;
   *tracePort << " C Heat Index " << AT_101HI << endl;
   * */
-     #ifdef PROCESS_TERMINAL
-  *tracePort << "on_Circulation_Pump_Process On Time:" << PY_001.getCurrentOnDuration()/1000 << endl;
-  *tracePort << "on_Circulation_Pump_Process Off Time:" << PY_001.getCurrentOffDuration()/1000 << endl;
-  #endif
+
+
 
 }
 
@@ -648,6 +621,72 @@ void displayTimerStatuses(bool clearScreen)
 
 }
 
+
+#ifdef PROCESS_TERMINAL
+void traceAlarmTime( char* label, time_t utcTime )
+{
+  char sprintfBuf[ 10 ];
+
+  time_t localAlarmTime = alarmTimeToLocal(utcTime);  
+
+  sprintf( sprintfBuf, "%02d:%02d", hour(localAlarmTime),minute(localAlarmTime) );
+  *tracePort << label << "=" << sprintfBuf << (isAM(localAlarmTime) == true ? "AM":"PM") << endl;
+
+}    
+#endif
+
+void displayLightStatuses(bool clearScreen)
+{
+  char sprintfBuf[ 10 ];
+  
+
+
+  if (clearScreen)
+    lcd.clear();
+  // lcd.home();
+  lcd.setCursor(0, 0);
+  lcd << F("Timers  On     Off");
+  lcd.setCursor(0, 1);
+  lcd << "D102:";
+  time_t localAlarmTime = alarmTimeToLocal(seedingAreaLightsOnEvent.epoch);  
+  lcd.setCursor(5, 1);
+  sprintf( sprintfBuf, "%02d:%02d", hour(localAlarmTime),minute(localAlarmTime) );
+  lcd << sprintfBuf ;
+  lcd.setCursor(10, 1);
+  lcd  << (isAM(localAlarmTime) == true ? "AM":"PM");
+
+
+  localAlarmTime = alarmTimeToLocal(seedingAreaLightsOffEvent.epoch);  
+  lcd.setCursor(13, 1);
+  sprintf( sprintfBuf, "%02d:%02d", hour(localAlarmTime),minute(localAlarmTime) );
+  lcd << sprintfBuf ;
+  lcd.setCursor(18, 1);
+  lcd  << (isAM(localAlarmTime) == true ? "AM":"PM");
+
+
+  lcd.setCursor(0, 2);
+  lcd << "D103:";
+  localAlarmTime = alarmTimeToLocal(growingChamberLightsOnEvent.epoch);  
+  lcd.setCursor(5, 2);
+  sprintf( sprintfBuf, "%02d:%02d", hour(localAlarmTime),minute(localAlarmTime) );
+  lcd << sprintfBuf ;
+  lcd.setCursor(10, 2);
+  lcd  << (isAM(localAlarmTime) == true ? "AM":"PM");
+
+  localAlarmTime = alarmTimeToLocal(growingChamberLightsOffEvent.epoch);  
+  lcd.setCursor(13, 2);
+  sprintf( sprintfBuf, "%02d:%02d", hour(localAlarmTime),minute(localAlarmTime) );
+  lcd << sprintfBuf ;
+  lcd.setCursor(18, 2);
+  lcd  << (isAM(localAlarmTime) == true ? "AM":"PM");
+
+
+}
+
+
+
+
+
 void setupLCD()
 {
   lcd.begin(20, 4);
@@ -658,7 +697,7 @@ void setupLCD()
 void setupLCDScreens()
 {
   firstScreen.displayFunc = displayHomeScreen;
-  firstScreen.previousScreen = & thirdScreen;
+  firstScreen.previousScreen = & fifthScreen;
   firstScreen.nextScreen = & secondScreen;
   secondScreen.displayFunc = displayHOAStatuses;
   secondScreen.previousScreen = & firstScreen;
@@ -668,8 +707,10 @@ void setupLCDScreens()
   thirdScreen.nextScreen = & fourthScreen;
   fourthScreen.displayFunc = displayTimerStatuses;
   fourthScreen.previousScreen = & thirdScreen;
-  fourthScreen.nextScreen = & firstScreen;
-
+  fourthScreen.nextScreen = & fifthScreen;
+  fifthScreen.displayFunc = displayLightStatuses;
+  fifthScreen.previousScreen = & fourthScreen;
+  fifthScreen.nextScreen = & firstScreen;
 
   currentScreen = & firstScreen;
 }
@@ -777,9 +818,9 @@ void refreshDiscreteOutputs()
 
 void doOnMidnight()
 {
-  FT_002.dayRollOver();
-  *tracePort << "day Rollover:";
-  FT_002.serialize(tracePort, true);
+  //FT_002.dayRollOver();
+ // *tracePort << "day Rollover:";
+  //FT_002.serialize(tracePort, true);
 }
 
 void refreshLCD()
@@ -809,10 +850,6 @@ void do_ONP_SPoll()
   tLevel = (NUTRIENT_TANK_MIXTURE_MAX - distanceCM) / NUTRIENT_TANK_MIXTURE_MAX; // NUTRIENT_TANK_MIXTURE_MAX;
   tLevel *= 100.0;
   LT_002_PV = tLevel;
-
-#ifdef PROCESS_TERMINAL
-  *tracePort << "imperial=" << distanceCM << " tLevel = " << tLevel << " LT_002_PV= " << LT_002_PV << endl;
-#endif
 
   sensors.requestTemperatures();
   AT_101H = AT_101.readHumidity(); // allow 1/4 sec to read
@@ -906,14 +943,17 @@ time_t alarmTimeToLocal(time_t utcAlarmTime)
   TimeChangeRule * tcr; // pointer to the time change rule, use to get the TZ abbrev
   time_t localAlarmTime = usMT.toLocal(utcAlarmTime, & tcr);
   int offset = tcr -> offset; // in minutes
-  if (usMT.utcIsDST(now()))
-  {
+  //if (usMT.utcIsDST(now()))
+ // {
     offset += 60;
     localAlarmTime += 60 * 60;
-  }
+  //}
+  
+
   if ((hour(utcAlarmTime) + (int) offset / 60) < 0)
   {
     int hr = 12 + (hour(utcAlarmTime) - (int) offset / 60);
+
     localAlarmTime = AlarmHMS(hr, minute(utcAlarmTime), second(utcAlarmTime));
   }
   return(localAlarmTime);
@@ -960,10 +1000,23 @@ modbusRegisters[HR_HS_102HOA] = HS_102AB.getCurrentState();
 modbusRegisters[HR_HS_103HOA] = HS_103AB.getCurrentState();
 modbusRegisters[HR_KY_002] = VERSION;
 
-//modbusRegisters[HW_DY_102_ONP_CV] = 
-//modbusRegisters[HW_DY_102_OFP_CV] = 
-//modbusRegisters[HW_DY_103_ONP_CV] = 
-//modbusRegisters[HW_DY_103_OFP_CV] = 
+
+blconvert.val = seedingAreaLightsOnEvent.epoch;
+modbusRegisters[ HW_DY_102_ONT_CV ] = blconvert.regsl[0];
+modbusRegisters[ HW_DY_102_ONT_CV + 1 ] = blconvert.regsl[1];
+
+blconvert.val = seedingAreaLightsOffEvent.epoch;
+modbusRegisters[ HW_DY_102_OFT_CV ] = blconvert.regsl[0];
+modbusRegisters[ HW_DY_102_OFT_CV + 1 ] = blconvert.regsl[1];
+
+blconvert.val = growingChamberLightsOnEvent.epoch;
+modbusRegisters[ HW_DY_103_ONT_CV ] = blconvert.regsl[0];
+modbusRegisters[ HW_DY_103_ONT_CV + 1 ] = blconvert.regsl[1];
+
+blconvert.val = growingChamberLightsOffEvent.epoch;
+modbusRegisters[ HW_DY_103_OFT_CV ] = blconvert.regsl[0];
+modbusRegisters[ HW_DY_103_OFT_CV + 1 ] = blconvert.regsl[1];
+
 modbusRegisters[HW_MY_101_ONP_CV] = MY_101.getCurrentOnDuration() / 1000;
 modbusRegisters[HW_MY_101_OFP_CV] = MY_101.getCurrentOffDuration() / 1000;
 modbusRegisters[HW_PY_001_ONP_CV] = PY_001.getCurrentOnDuration() / 1000;
@@ -1088,7 +1141,7 @@ void setModbusFanOffDuration()
   }
 }
 
-void setModbusCirculati_ONP_SPumpOnDuration()
+void setModbusCirculationPumpOnDuration()
 {
   if (modbusRegisters[HW_PY_001_ONP_SP] != 0)
   {
@@ -1102,7 +1155,7 @@ void setModbusCirculati_ONP_SPumpOnDuration()
 }
 
 
-void setModbusCirculati_ONP_SPumpOffDuration()
+void setModbusCirculationPumpOffDuration()
 {
   if (modbusRegisters[HW_PY_001_OFP_SP] != 0)
   {
@@ -1150,8 +1203,8 @@ void processModbusCommands()
   setModbusFanOnDuration();
   setModbusFanOffDuration();
 
-  setModbusCirculati_ONP_SPumpOnDuration();
-  setModbusCirculati_ONP_SPumpOffDuration();
+  setModbusCirculationPumpOnDuration();
+  setModbusCirculationPumpOffDuration();
   //setModbusLightsOff();
   setConfigToDefaults();
 }
@@ -1215,12 +1268,28 @@ unsigned int isEEPROMConfigured()
 
 void EEPROMLoadConfig()
 {
-  growingChamberLightsOffEvent.epoch = EEPROMReadAlarmEntry(EEPROM_GROWING_CHAMBER_ON_TIME_ADDR);
+  growingChamberLightsOffEvent.epoch = EEPROMReadAlarmEntry(EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR);
   Alarm.free(growingChamberLightsOffEvent.id);
-  growingChamberLightsOffEvent.id = Alarm.alarmRepeat(growingChamberLightsOffEvent.epoch, doGrowingChamberLightsOn);
-  growingChamberLightsOnEvent.epoch = EEPROMReadAlarmEntry(EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR);
+  growingChamberLightsOffEvent.id = Alarm.alarmRepeat(growingChamberLightsOffEvent.epoch, doGrowingChamberLightsOff);
+
+  growingChamberLightsOnEvent.epoch = EEPROMReadAlarmEntry(EEPROM_GROWING_CHAMBER_ON_TIME_ADDR);
   Alarm.free(growingChamberLightsOnEvent.id);
-  growingChamberLightsOnEvent.id = Alarm.alarmRepeat(growingChamberLightsOnEvent.epoch, doGrowingChamberLightsOff);
+  growingChamberLightsOnEvent.id = Alarm.alarmRepeat(growingChamberLightsOnEvent.epoch, doGrowingChamberLightsOn);
+
+  seedingAreaLightsOffEvent.epoch = EEPROMReadAlarmEntry(EEPROM_SEEDING_AREA_OFF_TIME_ADDR);
+  Alarm.free(seedingAreaLightsOffEvent.id);
+  seedingAreaLightsOffEvent.id = Alarm.alarmRepeat(seedingAreaLightsOffEvent.epoch, doSeedingAreaLightsOff);
+
+  seedingAreaLightsOnEvent.epoch = EEPROMReadAlarmEntry(EEPROM_SEEDING_AREA_ON_TIME_ADDR);
+  Alarm.free(seedingAreaLightsOnEvent.id);
+  seedingAreaLightsOnEvent.id = Alarm.alarmRepeat(seedingAreaLightsOnEvent.epoch, doSeedingAreaLightsOn);
+
+  PY_001.setOnDuration( EEPROMReadDuration( EEPROM_CIRCULATION_PUMP_ON_DURATION_ADDR) ) ; 
+  PY_001.setOffDuration( EEPROMReadDuration( EEPROM_CIRCULATION_PUMP_OFF_DURATION_ADDR) ) ;
+
+  MY_101.setOnDuration( EEPROMReadDuration( EEPROM_FAN_ON_DURATION_ADDR) ) ; 
+  MY_101.setOffDuration( EEPROMReadDuration( EEPROM_FAN_OFF_DURATION_ADDR) ) ;
+
   // Alarm.free( dutyCycleChangeAlarm.id );
   // dutyCycleChangeAlarm.id = Alarm.alarmRepeat(dutyCycleChangeAlarm.epoch, alterLEDPattern);
 }
@@ -1232,13 +1301,20 @@ void EEPROMLoadConfig()
 #define DISPLAY_TIME 't'
 #define DISPLAY_ALARMS 'a'
 #define DISPLAY_DUTY_CYCLE 'd'
-#define TIMER_ALARM_HEADER 'A' // Timer Alarm Header tag
+#define TIMER_GROWING_CHAMBER_HEADER 'G' // Growing Chamber Alarm Header tag
+#define TIMER_SEEDING_AREA_HEADER 'A' // Seeding Area Alarm Header tag
 #define TIMER_ALARM_ON '1' // Timer Alarm On A14:00:00->turn on lights at 4AM
 #define TIMER_ALARM_OFF '0' // Timer Alarm On A023:00:00->turn off lighst at 11 PM
 #define HELP_HEADER '?'
 #define LIGHT_HEADER 'L' // Light Header tag
 #define LIGHTS_ON '1' // Turn lights on L1
 #define LIGHTS_OFF '0' // Turn lights off L0
+#define CIRCULATION_PUMP_HEADER 'C' // Light Header tag
+#define FAN_HEADER 'F' // Light Header tag
+
+#define LIGHTS_ON '1' // Turn lights on L1
+#define LIGHTS_OFF '0' // Turn lights off L0
+
 // efine LIGHTS_TOOGLE 't'         // toggle
 #define LIGHTS_DUTY_CYCLE 'd' // Ld60->60% dominant color default mostly red 60-90 percent allowed
 #define LIGHTS_DUTY_CYCLE_PERIOD 'r' // Lr3600->change the duty cycle between 60-90 % every hour
@@ -1251,15 +1327,17 @@ void EEPROMLoadConfig()
 #define SERIALIZE_CIRCULATION_FAN 'f'
 void displayAlarm(char * who, struct _AlarmEntry aAlarmEntry)
 {
-  *tracePort << who << "id = " << aAlarmEntry.id << " UTC set to " << hour(aAlarmEntry.epoch);
-  printDigits(minute(aAlarmEntry.epoch));
-  printDigits(second(aAlarmEntry.epoch));
+  char buffer[ STRLEN("HH:MM:SS")];
+
+  timeToBuffer( aAlarmEntry.epoch , buffer );
+
+  *tracePort << who << " id:" << aAlarmEntry.id << " UTC:" << buffer << " epoch:" << aAlarmEntry.epoch;
+
+  
   time_t localAlarmTime = alarmTimeToLocal(aAlarmEntry.epoch);
-  *tracePort << " UTC epoch is " << aAlarmEntry.epoch;
-  *tracePort << " Local is " << hour(localAlarmTime);
-  printDigits(minute(localAlarmTime));
-  printDigits(second(localAlarmTime));
-  *tracePort << " epoch is " << localAlarmTime << endl;
+  timeToBuffer( localAlarmTime, buffer );
+   *tracePort << " Local:" << buffer << " epoch:" << localAlarmTime << endl;
+
 }
 
 void processDisplayIOMessage()
@@ -1274,6 +1352,8 @@ void processDisplayIOMessage()
     *tracePort << "Mixture Temperature:" << sensors.getTempC(mixtureTemperatureAddress) << "C" << endl;
     *tracePort << "HT-101: " << "Rel Humidity:" << AT_101H << " % Temperature:" << AT_101T;
     *tracePort << " C Heat Index " << AT_101HI << endl;
+    *tracePort << " LT_002_PV= " << LT_002_PV << endl;
+
     // AT_101.serialize( tracePort, true);
     // *tracePort << "Abient Temp = " << TE_001.getScaledSample() << " C" << endl;
     // float hic = AT_101.computeHeatIndex(t, h, false);
@@ -1291,13 +1371,21 @@ void processDisplayMessage()
   char c = tracePort -> read();
   if (c == DISPLAY_TIME)
   {
-    displayDateTime();
+   char buffer[ STRLEN("MM/DD/YYYY HH:MM")];
+   TimeChangeRule * tcr; // pointer to the time change rule, use to get the TZ abbrev
+    time_t atime = now();
+    atime = usMT.toLocal(atime, & tcr);
+    dateTimeToBuffer( atime, buffer );
+    *tracePort << buffer << endl;
   }
   else
     if (c == DISPLAY_ALARMS)
     {
-      displayAlarm("...Lights On Alarm", growingChamberLightsOffEvent);
-      displayAlarm("...Lights Off Alarm", growingChamberLightsOnEvent);
+      *tracePort << endl;
+      displayAlarm("...GC Off", growingChamberLightsOffEvent);
+      displayAlarm("...GC On", growingChamberLightsOnEvent);
+      displayAlarm("...SA On", seedingAreaLightsOnEvent);
+      displayAlarm("...SA Off", seedingAreaLightsOffEvent);
       displayAlarm("...Reset Midnight", onMidnight);
       // *tracePort << "Duty Cycle Period = " << dutyCycleChangeAlarm.epoch << " s id=" << dutyCycleChangeAlarm.id << endl;
     }
@@ -1308,11 +1396,7 @@ void processDisplayMessage()
     }
 }
 
-void processShowTime()
-{
-  char c = tracePort -> read();
-  displayDateTime();
-}
+
 
 void processLightsMessage()
 {
@@ -1338,33 +1422,104 @@ void processLightsMessage()
   }
 }
 
-void processAlarmMessage()
+
+
+void processAlarmEntryMessage( struct _AlarmEntry* aAlarmEntry, unsigned int eepromAddr, OnTick_t alarmHandler )
+{
+    Alarm.free(aAlarmEntry->id);
+    unsigned int shour = tracePort -> parseInt(); 
+    unsigned int sminute = tracePort -> parseInt(); 
+    unsigned int ssecond = tracePort -> parseInt(); 
+
+    aAlarmEntry->epoch = alarmTimeToUTC(AlarmHMS(shour, sminute, ssecond));
+    aAlarmEntry->id = Alarm.alarmRepeat(aAlarmEntry->epoch, alarmHandler);
+
+    //Serial << "alarm epoch " << aAlarmEntry->epoch << " alarm ID " << aAlarmEntry->id <<endl;
+    EEPROMWriteAlarmEntry(aAlarmEntry->epoch, eepromAddr);
+
+}
+
+void processGCAlarmMessage()
 {
   char c = tracePort -> read();
-  if (c == TIMER_ALARM_ON)
+  if (c == TIMER_ALARM_OFF)
   {
-    Alarm.free(growingChamberLightsOffEvent.id);
-    unsigned int shour = tracePort -> parseInt(); // constrain(tracePort->parseInt(), 0, 23);
-    unsigned int sminute = tracePort -> parseInt(); // constrain(tracePort->parseInt(), 0, 59);
-    unsigned int ssecond = tracePort -> parseInt(); // constrain(tracePort->parseInt(), 0, 59);
-    growingChamberLightsOffEvent.epoch = alarmTimeToUTC(AlarmHMS(shour, sminute, ssecond));
-    growingChamberLightsOffEvent.id = Alarm.alarmRepeat(growingChamberLightsOffEvent.epoch, doGrowingChamberLightsOn);
-    EEPROMWriteAlarmEntry(growingChamberLightsOffEvent.epoch, EEPROM_GROWING_CHAMBER_ON_TIME_ADDR);
-    displayAlarm("Lights On Alarm", growingChamberLightsOffEvent);
-    // *tracePort << tracePort->parseInt() << "-" << tracePort->parseInt() << "-" << tracePort->parseInt() << endl;
+    processAlarmEntryMessage( &growingChamberLightsOffEvent, EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR,doGrowingChamberLightsOff );
+    displayAlarm("GC OFF", growingChamberLightsOffEvent );
+  
   }
   else
-    if (c == TIMER_ALARM_OFF)
+    if (c == TIMER_ALARM_ON)
     {
-      Alarm.free(growingChamberLightsOnEvent.id);
-      unsigned int shour = tracePort -> parseInt(); // constrain(tracePort->parseInt(), 0, 23);
-      unsigned int sminute = tracePort -> parseInt(); // constrain(tracePort->parseInt(), 0, 59);
-      unsigned int ssecond = tracePort -> parseInt(); // constrain(tracePort->parseInt(), 0, 59);
-      growingChamberLightsOnEvent.epoch = alarmTimeToUTC(AlarmHMS(shour, sminute, ssecond));
-      growingChamberLightsOnEvent.id = Alarm.alarmRepeat(growingChamberLightsOnEvent.epoch, doGrowingChamberLightsOff);
-      EEPROMWriteAlarmEntry(growingChamberLightsOnEvent.epoch, EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR);
-      displayAlarm("Lights Off Alarm", growingChamberLightsOnEvent);
+      processAlarmEntryMessage( &growingChamberLightsOnEvent, EEPROM_GROWING_CHAMBER_ON_TIME_ADDR,doGrowingChamberLightsOn );
+      displayAlarm("GC On", growingChamberLightsOnEvent);
     }
+}
+
+void processSAAlarmMessage()
+{
+  char c = tracePort -> read();
+   if (c == TIMER_ALARM_OFF)
+  {
+    processAlarmEntryMessage( &seedingAreaLightsOffEvent, EEPROM_SEEDING_AREA_OFF_TIME_ADDR,doSeedingAreaLightsOff );
+    displayAlarm("SA OFF", seedingAreaLightsOffEvent );
+  
+  }
+  else
+    if (c == TIMER_ALARM_ON)
+    {
+      processAlarmEntryMessage( &seedingAreaLightsOnEvent, EEPROM_SEEDING_AREA_ON_TIME_ADDR,doSeedingAreaLightsOn );
+    displayAlarm("SA ON", seedingAreaLightsOnEvent );
+    }
+}
+
+void processCirculationPumpDurations()
+{
+  char c = tracePort -> read();
+  unsigned int duration;
+  duration = (unsigned int ) tracePort -> parseInt();
+
+
+  if (c == TIMER_ALARM_ON)
+  {
+    PY_001.setOnDuration(duration);
+    EEPROMWriteDuration(duration, EEPROM_CIRCULATION_PUMP_ON_DURATION_ADDR);
+
+  
+  }
+  else
+  {
+    PY_001.setOffDuration(duration);
+    EEPROMWriteDuration(duration, EEPROM_CIRCULATION_PUMP_OFF_DURATION_ADDR);
+
+  
+  }
+  
+}
+
+
+void processFanDurations()
+{
+  char c = tracePort -> read();
+  unsigned int duration;
+  duration = (unsigned int ) tracePort -> parseInt();
+
+
+  if (c == TIMER_ALARM_ON)
+  {
+    MY_101.setOnDuration(duration);
+    EEPROMWriteDuration(duration, EEPROM_FAN_ON_DURATION_ADDR);
+
+  
+  }
+  else
+  {
+    MY_101.setOffDuration(duration);
+    EEPROMWriteDuration(duration, EEPROM_FAN_OFF_DURATION_ADDR);
+
+  
+  }
+  
 }
 
 void showCommands()
@@ -1373,17 +1528,20 @@ void showCommands()
   *tracePort << F("Dt - Display Date/Time") << endl;
   *tracePort << F("Da - Display Alarms") << endl;
   *tracePort << F("T9999999999 - Set time using UNIX Epoch numner") << endl;
-  *tracePort << F("A1HH:MM:SS - Set lights on time ") << endl;
-  *tracePort << F("A0HH:MM:SS  - Set lights off time ") << endl;
-  *tracePort << F("L1  - Lights On ") << endl;
-  *tracePort << F("L0  - Lights Off ") << endl;
-  *tracePort << F("Ld99 - Lighting duty cycle 99 From 60 to 90") << endl;
-  *tracePort << F("Lr99999 - Lighting time to randomly change duty cycle in seconds") << endl;
+  *tracePort << F("G1HH:MM:SS - GC on") << endl;
+  *tracePort << F("G0HH:MM:SS  - GC Off ") << endl;
+  *tracePort << F("A1HH:MM:SS - SA on") << endl;
+  *tracePort << F("A0HH:MM:SS  - SA Off ") << endl;  
   *tracePort << F("Lc  - reset/clear settings to defaults ") << endl;
   *tracePort << F("It  - display 1 wire temps and humidity, sonar") << endl;
   *tracePort << F("Im  - display Soil Moisture") << endl;
   *tracePort << F("?? - Display commands") << endl;
   *tracePort << F("Sc - Serialize Circulation Pump") << endl;
+  *tracePort << F("Sf - Serialize Fan") << endl;
+  *tracePort << F("C19999999 - Circulation Pump On Duration in s") << endl;
+  *tracePort << F("CO9999999 - Circulation Pump Off Duration in s") << endl;  
+  *tracePort << F("F19999999 - Fan On Duration in s") << endl;
+  *tracePort << F("FO9999999 - Fan Off Duration in s") << endl;    
   *tracePort << "------------------------------------------------------------------" << endl;
 }
 
@@ -1397,7 +1555,12 @@ void processTimeSetMessage()
   {
     RTC.set(pctime); // set the RTC and the system time to the received value
     setTime(pctime); // Sync Arduino clock to the time received on the Serial2 port
-    displayDateTime();
+    char buffer[ STRLEN("MM/DD/YYYY HH:MM")];
+   TimeChangeRule * tcr; // pointer to the time change rule, use to get the TZ abbrev
+    time_t atime = now();
+    atime = usMT.toLocal(atime, & tcr);
+    dateTimeToBuffer( atime, buffer );
+    *tracePort << buffer << endl;
   }
 }
 
@@ -1448,9 +1611,14 @@ void processTerminalCommands()
         showCommands();
       }
     else
-      if (c == TIMER_ALARM_HEADER)
+      if (c == TIMER_GROWING_CHAMBER_HEADER)
       {
-        processAlarmMessage();
+        processGCAlarmMessage();
+      }
+    else
+      if (c == TIMER_SEEDING_AREA_HEADER)
+      {
+        processSAAlarmMessage();
       }
     else
       if (c == IO_HEADER)
@@ -1462,6 +1630,16 @@ void processTerminalCommands()
       {
         processSerializeMessage();
       }
+    else
+      if (c == CIRCULATION_PUMP_HEADER)
+      {
+        processCirculationPumpDurations();
+      }
+    else
+      if (c == FAN_HEADER)
+      {
+        processFanDurations();
+      }      
   }
 }
 
