@@ -9,19 +9,6 @@
 *  Control an ebb and flow hydroponic setup. Data published via as a modbus slave and setpoints,
 *  alarm limits saved in EEPRPOM
 *
-*  2017Sep19 - Removed - Control LED strip lighting used for plants. LED strip is mostly red with some blue light. Ratio
-*              set via dutycycle between 60 and 90%. Lights turn off and on at a predetermined interval.
-*  2017Sep19 - Added On/Off control of full spectrum LED strip
-*  2017Sep19 - Added ambient temperature reading via SPI
-*  2017Sep19 - Added ambient humidity reading via SPI
-*  2017Sep19 - Added solution temperature via SPI
-*  2017Sep19 - Added Fan On/Off control
-*  2017Sep19 - Added On/Off control for nutrient flow
-*  // stino sublime text - libs to import go here C:\Users\home\Documents\Arduino\libraries
-*  TODO- xbee integration next to feed into data collection system.
-*  Hydroponic integration - temperature, humidity, pH control, water cycles
-*  History - added temperature, humidity, and
-*
 */
 #include <Time.h>
 #include <HardwareSerial.h>
@@ -95,6 +82,20 @@ FlowMeter FT_002(FT002_SENSOR_INTERUPT_PIN, FLOW_CALC_PERIOD_SECONDS); // interr
 #define ENABLE_FT003_SENSOR_INTERRUPTS attachInterrupt(digitalPinToInterrupt(FT003_SENSOR_INTERUPT_PIN), onFT_003_PulseIn, RISING)
 #define DISABLE_FT003_SENSOR_INTERRUPTS detachInterrupt(digitalPinToInterrupt(FT003_SENSOR_INTERUPT_PIN))
 FlowMeter FT_003(FT003_SENSOR_INTERUPT_PIN, FLOW_CALC_PERIOD_SECONDS); // interrupt pin, calculation period in seconds
+
+#define CO2_INTERRUPT_PIN 18
+#define ENABLE_CO2_SENSOR_RISING_INTERRUPTS attachInterrupt(digitalPinToInterrupt(CO2_INTERRUPT_PIN), on_AT_102_Rising, RISING)
+#define ENABLE_CO2_SENSOR_FALLING_INTERRUPTS attachInterrupt(digitalPinToInterrupt(CO2_INTERRUPT_PIN), on_AT_102_Falling, FALLING)
+#define DISABLE_CO2_SENSOR_INTERRUPTS detachInterrupt(digitalPinToInterrupt(CO2_INTERRUPT_PIN))
+
+// CO2 timing vars
+volatile unsigned long timeOn_AT_102Start = 0 ;
+volatile unsigned long timeOff_AT_102Start = 0;
+volatile unsigned long timeOn_AT_102 = 0 ;
+volatile unsigned long timeOff_AT_102 = 0;
+
+unsigned int AT_102 = 0;
+
 
 /*
 Blue Serial IIC/I2C/TWI 2004 204 20X4 Character LCD Module Display For Arduino
@@ -230,6 +231,30 @@ void onFT_003_PulseIn()
 {
   FT_003.handleFlowDetection();
 }
+
+
+
+void on_AT_102_Rising()
+{
+
+  unsigned long timestamp = micros();
+  //timeCycle = micros();
+  timeOn_AT_102Start = timestamp;
+  timeOff_AT_102 = timeOn_AT_102Start - timeOff_AT_102Start;
+  ENABLE_CO2_SENSOR_FALLING_INTERRUPTS;
+}
+
+
+void on_AT_102_Falling()
+{
+
+  unsigned long timestamp = micros();
+
+  timeOn_AT_102 = timestamp - timeOn_AT_102Start;
+  timeOff_AT_102Start = timestamp; 
+  ENABLE_CO2_SENSOR_RISING_INTERRUPTS;
+}
+
 
 /*
 Only open inlet H20 Valve iff no Hi-Hi water level
@@ -527,6 +552,7 @@ void displayHomeScreen(bool clearScreen)
 
 void displayMiscStatuses(bool clearScreen)
 {
+  char sprintfBuf[ 17 ];
 
   if (clearScreen)
     lcd.clear();
@@ -546,6 +572,10 @@ void displayMiscStatuses(bool clearScreen)
   lcd << F("LSHH-002:");
   lcd.setCursor(9, 2);
   lcd << LSHH_002.getSample();
+
+  lcd.setCursor(0, 4);
+  sprintf( sprintfBuf, "AT-102:%04d ppm", AT_102 );
+  lcd << sprintfBuf ;
 }
 
 void displayHOAStatuses(bool clearScreen)
@@ -772,6 +802,7 @@ void setup()
   // humidity sensor
   AT_101.begin();
   ENABLE_FT002_SENSOR_INTERRUPTS;
+  ENABLE_CO2_SENSOR_RISING_INTERRUPTS;
   lcd.clear();
 }
 
@@ -867,6 +898,9 @@ void do_ONP_SPoll()
   {
     AT_101HI = AT_101.computeHeatIndex(AT_101T, AT_101H, false);
   }
+
+  AT_102 = (unsigned int ) ( 2000 * ( timeOn_AT_102 - .002)/(timeOn_AT_102+timeOff_AT_102 - .004) ) ;
+
 }
 
 void doReadInputs()
@@ -1006,26 +1040,31 @@ modbusRegisters[HR_HS_103HOA] = HS_103AB.getCurrentState();
 modbusRegisters[HR_KY_002] = VERSION;
 
 
+
+
 blconvert.val = seedingAreaLightsOnEvent.epoch;
-modbusRegisters[ HW_DY_102_ONT_CV ] = blconvert.regsl[0];
-modbusRegisters[ HW_DY_102_ONT_CV + 1 ] = blconvert.regsl[1];
+modbusRegisters[ HR_DY_102_ONT_CV ] = blconvert.regsl[0];
+modbusRegisters[ HR_DY_102_ONT_CV + 1 ] = blconvert.regsl[1];
 
 blconvert.val = seedingAreaLightsOffEvent.epoch;
-modbusRegisters[ HW_DY_102_OFT_CV ] = blconvert.regsl[0];
-modbusRegisters[ HW_DY_102_OFT_CV + 1 ] = blconvert.regsl[1];
+modbusRegisters[ HR_DY_102_OFT_CV ] = blconvert.regsl[0];
+modbusRegisters[ HR_DY_102_OFT_CV + 1 ] = blconvert.regsl[1];
 
 blconvert.val = growingChamberLightsOnEvent.epoch;
-modbusRegisters[ HW_DY_103_ONT_CV ] = blconvert.regsl[0];
-modbusRegisters[ HW_DY_103_ONT_CV + 1 ] = blconvert.regsl[1];
+modbusRegisters[ HR_DY_103_ONT_CV ] = blconvert.regsl[0];
+modbusRegisters[ HR_DY_103_ONT_CV + 1 ] = blconvert.regsl[1];
 
 blconvert.val = growingChamberLightsOffEvent.epoch;
-modbusRegisters[ HW_DY_103_OFT_CV ] = blconvert.regsl[0];
-modbusRegisters[ HW_DY_103_OFT_CV + 1 ] = blconvert.regsl[1];
+modbusRegisters[ HR_DY_103_OFT_CV ] = blconvert.regsl[0];
+modbusRegisters[ HR_DY_103_OFT_CV + 1 ] = blconvert.regsl[1];
 
-modbusRegisters[HW_MY_101_ONP_CV] = MY_101.getCurrentOnDuration() / 1000;
-modbusRegisters[HW_MY_101_OFP_CV] = MY_101.getCurrentOffDuration() / 1000;
-modbusRegisters[HW_PY_001_ONP_CV] = PY_001.getCurrentOnDuration() / 1000;
-modbusRegisters[HW_PY_001_OFP_CV] = PY_001.getCurrentOffDuration() / 1000;
+modbusRegisters[HR_MY_101_ONP_CV] = MY_101.getCurrentOnDuration() / 1000;
+modbusRegisters[HR_MY_101_OFP_CV] = MY_101.getCurrentOffDuration() / 1000;
+modbusRegisters[HR_PY_001_ONP_CV] = PY_001.getCurrentOnDuration() / 1000;
+modbusRegisters[HR_PY_001_OFP_CV] = PY_001.getCurrentOffDuration() / 1000;
+
+// formula from CO2 datasheet
+modbusRegisters[HR_AT_102] = AT_102;
 
 
 

@@ -71,15 +71,15 @@
 #define HW_PY_001_OFP_SP   43        // Circulation Pump 120VAC OFF Period in sec  Setpoint
 
 
-#define HW_DY_102_ONT_CV   44        // Seeding Area Chamber LED ON Time (UNIX EPOCH) Current Value UTC
-#define HW_DY_102_OFT_CV   46        // Seeding Area LED OFF Time  (UNIX EPOCH)  Current Value  UTC
-#define HW_DY_103_ONT_CV   48        // Growing Chamber LED ON Time (UNIX EPOCH)  Current Value UTC
-#define HW_DY_103_OFT_CV   50        // Growing Chamber LED OFF Time  (UNIX EPOCH)  Current Value UTC
-
-#define HW_MY_101_ONP_CV   52        // Fan  120VAC ON Period in sec  Current Value 
-#define HW_MY_101_OFP_CV   53        // Fan  120VAC OFF Period in sec  Current Value 
-#define HW_PY_001_ONP_CV   54        // Circulation Pump 120VAC ON Period in sec  Current Value
-#define HW_PY_001_OFP_CV   55        // Circulation Pump 120VAC OFF Period in sec  Current Value
+#define HR_DY_102_ONT_CV   44        // Seeding Area Chamber LED ON Time (UNIX EPOCH) Current Value UTC
+#define HR_DY_102_OFT_CV   46        // Seeding Area LED OFF Time  (UNIX EPOCH)  Current Value  UTC
+#define HR_DY_103_ONT_CV   48        // Growing Chamber LED ON Time (UNIX EPOCH)  Current Value UTC
+#define HR_DY_103_OFT_CV   50        // Growing Chamber LED OFF Time  (UNIX EPOCH)  Current Value UTC
+#define HR_MY_101_ONP_CV   52        // Fan  120VAC ON Period in sec  Current Value
+#define HR_MY_101_OFP_CV   53        // Fan  120VAC OFF Period in sec  Current Value
+#define HR_PY_001_ONP_CV   54        // Circulation Pump 120VAC ON Period in sec  Current Value
+#define HR_PY_001_OFP_CV   55        // Circulation Pump 120VAC OFF Period in sec  Current Value
+#define HR_AT_102   	   56        // CO2 Sensor PPM
 
 
 
