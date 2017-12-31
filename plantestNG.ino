@@ -89,12 +89,9 @@ FlowMeter FT_003(FT003_SENSOR_INTERUPT_PIN, FLOW_CALC_PERIOD_SECONDS); // interr
 #define DISABLE_CO2_SENSOR_INTERRUPTS detachInterrupt(digitalPinToInterrupt(CO2_INTERRUPT_PIN))
 
 // CO2 timing vars
+#define  CO2_PERIOD   1004// 1 PWM cycle in millisecs
 volatile unsigned long timeOn_AT_102Start = 0 ;
-volatile unsigned long timeOff_AT_102Start = 0;
-volatile unsigned long timeOn_AT_102 = 0 ;
-volatile unsigned long timeOff_AT_102 = 0;
-
-unsigned int AT_102 = 0;
+volatile unsigned int AT_102 = 0;
 
 
 /*
@@ -237,21 +234,22 @@ void onFT_003_PulseIn()
 void on_AT_102_Rising()
 {
 
-  unsigned long timestamp = micros();
+
+ // unsigned long timestamp = micros();
   //timeCycle = micros();
-  timeOn_AT_102Start = timestamp;
-  timeOff_AT_102 = timeOn_AT_102Start - timeOff_AT_102Start;
+  timeOn_AT_102Start = millis();
+  //timeOff_AT_102 = timeOn_AT_102Start - timeOff_AT_102Start;
   ENABLE_CO2_SENSOR_FALLING_INTERRUPTS;
 }
 
 
 void on_AT_102_Falling()
 {
-
-  unsigned long timestamp = micros();
-
-  timeOn_AT_102 = timestamp - timeOn_AT_102Start;
-  timeOff_AT_102Start = timestamp; 
+//DISABLE_CO2_SENSOR_INTERRUPTS;
+  unsigned long timeOn = abs(millis() - timeOn_AT_102Start);
+  unsigned long timeOff = CO2_PERIOD - timeOn;
+  AT_102 = (unsigned int ) ( 2000 * ( timeOn - 2)/(timeOn + timeOff - 4) ) ;
+  Serial << "AT-102="<< AT_102 << " timeOn=" << timeOn << " timeOff=" << timeOff << endl;
   ENABLE_CO2_SENSOR_RISING_INTERRUPTS;
 }
 
@@ -825,6 +823,7 @@ void loop()
   // doReadInputs();
   // doUpdateOutputs();
   // LSL_100.refresh();
+
 }
 
 void refreshDiscreteInputs()
@@ -899,7 +898,7 @@ void do_ONP_SPoll()
     AT_101HI = AT_101.computeHeatIndex(AT_101T, AT_101H, false);
   }
 
-  AT_102 = (unsigned int ) ( 2000 * ( timeOn_AT_102 - .002)/(timeOn_AT_102+timeOff_AT_102 - .004) ) ;
+
 
 }
 
