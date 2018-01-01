@@ -22,7 +22,7 @@
 
 #define HOLDING_REGISTER_READ_OFFSET 10		// start read holding regisers
 #define HOLDING_REGISTER_WRITE_OFFSET 30
-#define MODBUS_REG_COUNT 60
+#define MODBUS_REG_COUNT 70
 
 #define CS_HS_001   0        // Drain Pump Hand status : Start/Stop
 #define CS_SSH_101   1        // Smoke Detector

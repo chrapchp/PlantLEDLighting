@@ -25,7 +25,7 @@
 #include <Adafruit_Sensor.h>
 #include <DHT.h> // DHT-22 humidity sensor
 #include <LiquidCrystal_I2C.h>
-#include <flowmeter.h>
+#include <DA_Flowmeter.h>
 #include <DA_Analoginput.h>
 #include <DA_Discreteinput.h>
 #include <DA_DiscreteOutput.h>
@@ -44,7 +44,7 @@
  
 
 // #define HOST_COMMAND_CHECK_INTERVAL  1000
-#define ALARM_REFRESH_INTERVAL 50
+#define ALARM_REFRESH_INTERVAL 10
 
 const unsigned long DEFAULT_TIME = 976492800;
 
@@ -234,7 +234,7 @@ void onFT_003_PulseIn()
 void on_AT_102_Rising()
 {
 
-
+DISABLE_CO2_SENSOR_INTERRUPTS;
  // unsigned long timestamp = micros();
   //timeCycle = micros();
   timeOn_AT_102Start = millis();
@@ -245,11 +245,11 @@ void on_AT_102_Rising()
 
 void on_AT_102_Falling()
 {
-//DISABLE_CO2_SENSOR_INTERRUPTS;
-  unsigned long timeOn = abs(millis() - timeOn_AT_102Start);
+  DISABLE_CO2_SENSOR_INTERRUPTS;
+  unsigned long timeOn = (unsigned long) abs(millis() - timeOn_AT_102Start);
   unsigned long timeOff = CO2_PERIOD - timeOn;
   AT_102 = (unsigned int ) ( 2000 * ( timeOn - 2)/(timeOn + timeOff - 4) ) ;
-  Serial << "AT-102="<< AT_102 << " timeOn=" << timeOn << " timeOff=" << timeOff << endl;
+ // Serial << "AT-102="<< AT_102 << " timeOn=" << timeOn << " timeOff=" << timeOff << endl;
   ENABLE_CO2_SENSOR_RISING_INTERRUPTS;
 }
 
@@ -346,30 +346,7 @@ void on_Circulation_Pump_Process(DA_HOASwitch::HOADetectType state)
   }
 }
 
-/*
-void on_Fan_Process(DA_HOASwitch::HOADetectType state)
-{
-#ifdef PROCESS_TERMINAL
-*tracePort << "on_Fan_Process HS_101AB" << endl;
-HS_101AB.serialize(tracePort, true);
-#endif
-switch (state)
-{
-case DA_HOASwitch::Hand:
-MY_101.disable();
-MY_101.forceActive(); // force the fan on
-break;
-case DA_HOASwitch::Off:
-// MY_101.disable();
-break;
-case DA_HOASwitch::Auto:
-MY_101.enable();
-break;
-default:
-break;
-}
-}
-*/
+
 void on_GrowingChamberLED_Process(DA_HOASwitch::HOADetectType state)
 {
 
@@ -786,6 +763,9 @@ void setup()
   HS_003A.setPollingInterval(200); // ms
   HS_003B.setPollingInterval(200); // ms
   HS_003C.setPollingInterval(200); // ms
+  HS_003A.setDebounceTime(150); // ms
+  HS_003B.setDebounceTime(150); // ms
+  HS_003C.setDebounceTime(150); // ms
   HS_003A.setOnEdgeEvent(& on_LCD_Next_Screen);
   HS_003B.setOnEdgeEvent(& on_LCD_Previous_Screen);
   HS_003C.setOnEdgeEvent(& on_LCD_Enter);
@@ -1065,19 +1045,6 @@ modbusRegisters[HR_PY_001_OFP_CV] = PY_001.getCurrentOffDuration() / 1000;
 // formula from CO2 datasheet
 modbusRegisters[HR_AT_102] = AT_102;
 
-
-
-
-
-
-
-
-  // modbusRegisters[ CS_LED_STATUS ] = plantStrip.isLightsOn();
-  // modbusRegisters[ CS_LED_STATUS ] = plantStrip.isLightsOn();
-  // writeModbusCoil( COIL_STATUS_READ_WRITE_OFFSET, CS_LED_STATUS, plantStrip.isLightsOn());
-  // modbusRegisters[HR_AMBIENT_TEMPERATURE] = (int) TE_001.getScaledSample() * 10;
-  // modbusRegisters[HR_SOIL_MOISTURE] = (int) QE_001.getScaledSample() * 10;
-  // bitWrite(modbusRegisters[ COIL_STATUS_READ_OFFSET], CS_SET_LED_ON, plantStrip.isLightsOn());
 }
 
 void setModbusTime()
