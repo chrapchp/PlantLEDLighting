@@ -484,13 +484,14 @@ void dateTimeToBuffer( time_t aTime, char *buffer )
 void displayDateTime()
 {
   
-  char buffer[ STRLEN("MM/DD/YYYY HH:MM")];
+
   if (timeStatus() != timeNotSet)
   {
     TimeChangeRule * tcr; // pointer to the time change rule, use to get the TZ abbrev
     time_t atime;
     atime = now();
     atime = usMT.toLocal(atime, & tcr);
+    char buffer[ 20 ];
     dateTimeToBuffer( atime, buffer );
     lcd << buffer;
   }
@@ -527,7 +528,7 @@ void displayHomeScreen(bool clearScreen)
 
 void displayMiscStatuses(bool clearScreen)
 {
-  char sprintfBuf[ 17 ];
+  char sprintfBuf[ 20 ];
 
   if (clearScreen)
     lcd.clear();
@@ -549,7 +550,7 @@ void displayMiscStatuses(bool clearScreen)
   lcd << LSHH_002.getSample();
 
   lcd.setCursor(0, 4);
-  sprintf( sprintfBuf, "AT-102:%04d ppm", AT_102 );
+  sprintf( sprintfBuf, "AT-102:%04u ppm", AT_102 );
   lcd << sprintfBuf ;
 }
 
@@ -591,7 +592,7 @@ void displayHOAStatuses(bool clearScreen)
 
 void displayTimerStatuses(bool clearScreen)
 {
-  char sprintfBuf[ 6 ];
+  char sprintfBuf[ 7 ];
   
 
 
@@ -604,22 +605,22 @@ void displayTimerStatuses(bool clearScreen)
   
   lcd << "MY-101:";
   lcd.setCursor(7, 1);
-  sprintf( sprintfBuf, "%05d", MY_101.getCurrentOnDuration() / 1000 );
+  sprintf( sprintfBuf, "%05u", (unsigned int) (MY_101.getCurrentOnDuration() / 1000) );
   lcd << sprintfBuf ;
 
   lcd.setCursor(13, 1);
-  sprintf( sprintfBuf, "%05d", MY_101.getCurrentOffDuration() / 1000 );
+  sprintf( sprintfBuf, "%05u", (unsigned int) (MY_101.getCurrentOffDuration() / 1000 ));
   lcd << sprintfBuf ;
 
   lcd.setCursor(0, 2);
   lcd << "PY-101:";
 
   lcd.setCursor(7, 2);
-  sprintf( sprintfBuf, "%05d", PY_001.getCurrentOnDuration() / 1000 );
+  sprintf( sprintfBuf, "%05u", (unsigned int) (PY_001.getCurrentOnDuration() / 1000 ));
   lcd << sprintfBuf ;
 
   lcd.setCursor(13, 2);
-  sprintf( sprintfBuf, "%05d", PY_001.getCurrentOffDuration() / 1000 );
+  sprintf( sprintfBuf, "%05u", (unsigned int)(PY_001.getCurrentOffDuration() / 1000 ));
   lcd << sprintfBuf ;
 
 
@@ -854,7 +855,7 @@ void doOnCalcFlowRate()
 // update sonar and 1-wire DHT-22 readings
 void do_ONP_SPoll()
 {
-  float tLevel = 0.0;
+  float tLevel ;
   unsigned int distanceCM = LT_002.ping() / US_ROUNDTRIP_CM - NUTRIENT_TANK_AIR_GAP;
   // compute distanace from high level mark
   tLevel = (NUTRIENT_TANK_MIXTURE_MAX - distanceCM) / NUTRIENT_TANK_MIXTURE_MAX; // NUTRIENT_TANK_MIXTURE_MAX;
