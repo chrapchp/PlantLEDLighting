@@ -1,3 +1,7 @@
+#include <RunningMedian.h>
+
+
+
 /**
 *  @file    planttestNG.ino
 *  @author  peter c
@@ -25,6 +29,8 @@
 #include <Adafruit_Sensor.h>
 #include <DHT.h> // DHT-22 humidity sensor
 #include <LiquidCrystal_I2C.h>
+#include <RunningMedian.h> // https://github.com/RobTillaart/Arduino/tree/master/libraries/RunningMedian
+
 #include <DA_Flowmeter.h>
 #include <DA_Analoginput.h>
 #include <DA_Discreteinput.h>
@@ -90,8 +96,13 @@ FlowMeter FT_003(FT003_SENSOR_INTERUPT_PIN, FLOW_CALC_PERIOD_SECONDS); // interr
 
 // CO2 timing vars
 #define  CO2_PERIOD   1004// 1 PWM cycle in millisecs
+#define  CO2_MAX_RATE_OF_CHANGE 200
 volatile unsigned long timeOn_AT_102Start = 0 ;
-volatile unsigned int AT_102 = 0;
+//volatile unsigned int AT_102Raw = 0;
+
+volatile unsigned int AT_102Raw = 0;
+RunningMedian AT_102MedianFilter = RunningMedian(5);
+
 
 
 /*
@@ -161,8 +172,9 @@ DallasTemperature sensors(& oneWire);
 // volume 28.5 * 76.2 * 45.75 => 100 L volume peroxyde ration 3 ml per 3.8 L
 const float NUTRIENT_TANK_MIXTURE_MAX = NUTRIENT_TANK_HEIGHT - NUTRIENT_TANK_AIR_GAP;
 NewPing LT_002(15, 16, NUTRIENT_TANK_HEIGHT); // Water Level
-float LT_002_PV = 0.0; // Water Level present value in cm from top,  0-> undefined
-float LT_002_PV_Prev = 0.0; // Water Level previous value
+float LT_002Raw = 0.0; // Water Level present value in cm from top,  0-> undefined
+
+RunningMedian LT_002MedianFilter = RunningMedian(5);
 
 // Discete Outputs
 // DO 35,36 AC spares
@@ -238,18 +250,30 @@ DISABLE_CO2_SENSOR_INTERRUPTS;
  // unsigned long timestamp = micros();
   //timeCycle = micros();
   timeOn_AT_102Start = millis();
-  //timeOff_AT_102 = timeOn_AT_102Start - timeOff_AT_102Start;
+  //timeOff_AT_102Raw= timeOn_AT_102Start - timeOff_AT_102Start;
   ENABLE_CO2_SENSOR_FALLING_INTERRUPTS;
 }
+
 
 
 void on_AT_102_Falling()
 {
   DISABLE_CO2_SENSOR_INTERRUPTS;
+  unsigned int tempAT_102Raw;
   unsigned long timeOn = (unsigned long) abs(millis() - timeOn_AT_102Start);
   unsigned long timeOff = CO2_PERIOD - timeOn;
-  AT_102 = (unsigned int ) ( 2000 * ( timeOn - 2)/(timeOn + timeOff - 4) ) ;
- // Serial << "AT-102="<< AT_102 << " timeOn=" << timeOn << " timeOff=" << timeOff << endl;
+
+  tempAT_102Raw = (unsigned int ) ( 2000 * ( timeOn - 2)/(timeOn + timeOff - 4) ) ;
+
+
+  if( tempAT_102Raw  <= 2000)
+  {
+    AT_102Raw = tempAT_102Raw;
+
+  }
+
+
+ // Serial << "AT-102="<< AT_102Raw<< " timeOn=" << timeOn << " timeOff=" << timeOff << endl;
   ENABLE_CO2_SENSOR_RISING_INTERRUPTS;
 }
 
@@ -508,14 +532,14 @@ void displayHomeScreen(bool clearScreen)
   lcd.setCursor(14, 1);
   lcd << "      ";
   lcd.setCursor(0, 1);
-  lcd << F("Mixture Level:") << _FLOAT(LT_002_PV, 1) << "%";
+  lcd << F("Mixture Level:") << _FLOAT(LT_002MedianFilter.getMedian(), 1) << "%";
   lcd.setCursor(0, 2);
   lcd << F("MT:") << _FLOAT(TT_001T, 1) << "C ";
   lcd << F("AT:") << _FLOAT(AT_101T, 1) << "C";
   lcd.setCursor(0, 3);
   lcd << F("Rel Hum:") << _FLOAT(AT_101H, 1) << "%";
   /*
-  *tracePort << "Sonar:cm:" << LT_002_PV << endl;
+  *tracePort << "Sonar:cm:" << LT_002Raw << endl;
   *tracePort << "Ambient Temperature:" << sensors.getTempC(ambientTemperatureAddress) << "C" << endl;
   *tracePort << "Mixture Temperature:" << sensors.getTempC(mixtureTemperatureAddress) << "C" << endl;
   *tracePort << "HT-101: " << "Rel Humidity:" << AT_101H << " % Temperature:" << AT_101T;
@@ -550,7 +574,7 @@ void displayMiscStatuses(bool clearScreen)
   lcd << LSHH_002.getSample();
 
   lcd.setCursor(0, 4);
-  sprintf( sprintfBuf, "AT-102:%04u ppm", AT_102 );
+  sprintf( sprintfBuf, "AT-102:%04u ppm", (unsigned int) AT_102MedianFilter.getMedian());
   lcd << sprintfBuf ;
 }
 
@@ -691,7 +715,41 @@ void displayLightStatuses(bool clearScreen)
 
 
 
+void displayPhEC()
+{
+  char sprintfBuf[ 7 ];
+  
 
+
+  if (clearScreen)
+    lcd.clear();
+  // lcd.home();
+  lcd.setCursor(0, 0);
+  lcd << F("                P V           A v g ");
+  
+  lcd.setCursor(0, 1);
+  
+  lcd << "MY-101:";
+  lcd.setCursor(7, 1);
+  sprintf( sprintfBuf, "%05u", (unsigned int) (MY_101.getCurrentOnDuration() / 1000) );
+  lcd << sprintfBuf ;
+
+  lcd.setCursor(13, 1);
+  sprintf( sprintfBuf, "%05u", (unsigned int) (MY_101.getCurrentOffDuration() / 1000 ));
+  lcd << sprintfBuf ;
+
+  lcd.setCursor(0, 2);
+  lcd << "PY-101:";
+
+  lcd.setCursor(7, 2);
+  sprintf( sprintfBuf, "%05u", (unsigned int) (PY_001.getCurrentOnDuration() / 1000 ));
+  lcd << sprintfBuf ;
+
+  lcd.setCursor(13, 2);
+  sprintf( sprintfBuf, "%05u", (unsigned int)(PY_001.getCurrentOffDuration() / 1000 ));
+  lcd << sprintfBuf ;
+
+}
 
 void setupLCD()
 {
@@ -778,6 +836,7 @@ void setup()
   // 1-wire
   sensors.begin();
   initOneWire();
+
   // humidity sensor
   AT_101.begin();
   ENABLE_FT002_SENSOR_INTERRUPTS;
@@ -848,8 +907,10 @@ void doOnCalcFlowRate()
   FT_003.end();
   FT_003.begin();
   refreshLCD();
+  AT_102MedianFilter.add(AT_102Raw);
   ENABLE_FT002_SENSOR_INTERRUPTS;
   ENABLE_FT003_SENSOR_INTERRUPTS;
+
 }
 
 // update sonar and 1-wire DHT-22 readings
@@ -860,8 +921,8 @@ void do_ONP_SPoll()
   // compute distanace from high level mark
   tLevel = (NUTRIENT_TANK_MIXTURE_MAX - distanceCM) / NUTRIENT_TANK_MIXTURE_MAX; // NUTRIENT_TANK_MIXTURE_MAX;
   tLevel *= 100.0;
-  LT_002_PV = tLevel;
-
+  LT_002Raw = tLevel;
+  LT_002MedianFilter.add( LT_002Raw);
   sensors.requestTemperatures();
   AT_101H = AT_101.readHumidity(); // allow 1/4 sec to read
   AT_101T = AT_101.readTemperature();
@@ -878,7 +939,7 @@ void do_ONP_SPoll()
   {
     AT_101HI = AT_101.computeHeatIndex(AT_101T, AT_101H, false);
   }
-
+  //ENABLE_CO2_SENSOR_RISING_INTERRUPTS;
 
 
 }
@@ -996,7 +1057,7 @@ bfconvert.val = AT_101T;
 modbusRegisters[ HR_TT_101 ] = bfconvert.regsf[0];
 modbusRegisters[ HR_TT_101 + 1 ] = bfconvert.regsf[1];
 
-bfconvert.val = LT_002_PV;
+bfconvert.val = LT_002MedianFilter.getMedian();
 modbusRegisters[ HR_LT_002 ] = bfconvert.regsf[0];
 modbusRegisters[ HR_LT_002 + 1 ] = bfconvert.regsf[1];
 
@@ -1044,7 +1105,7 @@ modbusRegisters[HR_PY_001_ONP_CV] = PY_001.getCurrentOnDuration() / 1000;
 modbusRegisters[HR_PY_001_OFP_CV] = PY_001.getCurrentOffDuration() / 1000;
 
 // formula from CO2 datasheet
-modbusRegisters[HR_AT_102] = AT_102;
+modbusRegisters[HR_AT_102] = (unsigned int ) AT_102MedianFilter.getMedian();
 
 }
 
@@ -1401,12 +1462,12 @@ void processDisplayIOMessage()
   {
     // float h = AT_101.readHumidity(); // allow 1/4 sec to read
     // float t = AT_101.readTemperature();
-    *tracePort << "Sonar:cm:" << LT_002_PV << endl;
+    *tracePort << "Sonar:cm:" << LT_002Raw << endl;
     *tracePort << "Ambient Temperature:" << sensors.getTempC(ambientTemperatureAddress) << "C" << endl;
     *tracePort << "Mixture Temperature:" << sensors.getTempC(mixtureTemperatureAddress) << "C" << endl;
     *tracePort << "HT-101: " << "Rel Humidity:" << AT_101H << " % Temperature:" << AT_101T;
     *tracePort << " C Heat Index " << AT_101HI << endl;
-    *tracePort << " LT_002_PV= " << LT_002_PV << endl;
+    *tracePort << " LT_002Raw= " << LT_002Raw << endl;
 
     // AT_101.serialize( tracePort, true);
     // *tracePort << "Abient Temp = " << TE_001.getScaledSample() << " C" << endl;
