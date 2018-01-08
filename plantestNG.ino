@@ -715,39 +715,9 @@ void displayLightStatuses(bool clearScreen)
 
 
 
-void displayPhEC()
+void displayPhEC( bool clearScreen)
 {
-  char sprintfBuf[ 7 ];
   
-
-
-  if (clearScreen)
-    lcd.clear();
-  // lcd.home();
-  lcd.setCursor(0, 0);
-  lcd << F("                P V           A v g ");
-  
-  lcd.setCursor(0, 1);
-  
-  lcd << "MY-101:";
-  lcd.setCursor(7, 1);
-  sprintf( sprintfBuf, "%05u", (unsigned int) (MY_101.getCurrentOnDuration() / 1000) );
-  lcd << sprintfBuf ;
-
-  lcd.setCursor(13, 1);
-  sprintf( sprintfBuf, "%05u", (unsigned int) (MY_101.getCurrentOffDuration() / 1000 ));
-  lcd << sprintfBuf ;
-
-  lcd.setCursor(0, 2);
-  lcd << "PY-101:";
-
-  lcd.setCursor(7, 2);
-  sprintf( sprintfBuf, "%05u", (unsigned int) (PY_001.getCurrentOnDuration() / 1000 ));
-  lcd << sprintfBuf ;
-
-  lcd.setCursor(13, 2);
-  sprintf( sprintfBuf, "%05u", (unsigned int)(PY_001.getCurrentOffDuration() / 1000 ));
-  lcd << sprintfBuf ;
 
 }
 
