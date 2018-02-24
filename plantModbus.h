@@ -22,7 +22,7 @@
 
 #define HOLDING_REGISTER_READ_OFFSET 10		// start read holding regisers
 #define HOLDING_REGISTER_WRITE_OFFSET 30
-#define MODBUS_REG_COUNT 70
+#define MODBUS_REG_COUNT 80
 
 #define CS_HS_001   0        // Drain Pump Hand status : Start/Stop
 #define CS_SSH_101   1        // Smoke Detector
@@ -80,6 +80,12 @@
 #define HR_PY_001_ONP_CV   54        // Circulation Pump 120VAC ON Period in sec  Current Value
 #define HR_PY_001_OFP_CV   55        // Circulation Pump 120VAC OFF Period in sec  Current Value
 #define HR_AT_102   	   56        // CO2 Sensor PPM
+#define HR_AT_001   	   58        // Nutrient pH
+#define HR_AT_002          60        // Nutrient EC
+#define HR_AT_002TDS       62        // Nutrient TDS
+#define HR_AT_002SAL       64        // Nutrient Salinity
+#define HR_AT_002SG        66        // Nutrient Specific Gravity
+
 
 
 

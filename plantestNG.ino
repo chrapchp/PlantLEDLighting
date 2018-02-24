@@ -1,7 +1,3 @@
-#include <RunningMedian.h>
-
-
-
 /**
 *  @file    planttestNG.ino
 *  @author  peter c
@@ -23,7 +19,7 @@
 #include <Wire.h> // for RTC
 #include <DS3232RTC.h> //http://github.com/JChristensen/DS3232RTC
 #include <avr/eeprom.h>
-#include <TimeAlarms.h>
+#include <TimeAlarms.h> //https://github.com/PaulStoffregen/TimeAlarms
 #include <Streaming.h>
 #include <NewPing.h>
 #include <Adafruit_Sensor.h>
@@ -37,6 +33,9 @@
 #include <DA_DiscreteOutput.h>
 #include <DA_DiscreteOutputTmr.h>
 #include <DA_HOASwitch.h>
+#include <DA_AtlasPH.h>
+#include <DA_AtlasEC.h>
+
 #include "PlantModbus.h"
 #define DEFAULT_LIGHTS_ON_ALARM_TIME AlarmHMS (5, 0, 0)
 #define DEFAULT_LIGHTS_OFF_ALARM_TIME AlarmHMS (23, 0, 0)
@@ -69,11 +68,11 @@ const unsigned long DEFAULT_TIME = 976492800;
 
 
 // comment out to not include terminal processing
-//#define PROCESS_TERMINAL
+#define PROCESS_TERMINAL
 //#define PROCESS_TERMINAL_VERBOSE
 HardwareSerial *tracePort = & Serial;
 // comment out to not implement modbus
- #define PROCESS_MODBUS
+// #define PROCESS_MODBUS
 // refresh intervals
 #define POLL_CYCLE_SECONDS 5 // sonar and 1-wire refresh rate
 // flow meter
@@ -103,7 +102,12 @@ volatile unsigned long timeOn_AT_102Start = 0 ;
 volatile unsigned int AT_102Raw = 0;
 RunningMedian AT_102MedianFilter = RunningMedian(5);
 
-
+// Ph and EC probes
+// 
+#define PH_I2C_ADDRESS 100
+#define EC_I2C_ADDRESS 101
+DA_AtlasPH AT_001 = DA_AtlasPH( PH_I2C_ADDRESS);
+DA_AtlasEC AT_002 = DA_AtlasEC( EC_I2C_ADDRESS);
 
 /*
 Blue Serial IIC/I2C/TWI 2004 204 20X4 Character LCD Module Display For Arduino
@@ -803,6 +807,8 @@ void setup()
   // HS_101AB.setOnStateChangeDetect(& on_Fan_Process);
   HS_102AB.setOnStateChangeDetect(& on_SeedingAreaLED_Process);
   HS_103AB.setOnStateChangeDetect(& on_GrowingChamberLED_Process);
+
+
   // 1-wire
   sensors.begin();
   initOneWire();
@@ -812,6 +818,8 @@ void setup()
   ENABLE_FT002_SENSOR_INTERRUPTS;
   ENABLE_CO2_SENSOR_RISING_INTERRUPTS;
   lcd.clear();
+
+
 }
 
 void loop()
@@ -830,6 +838,10 @@ void loop()
   refreshDiscreteInputs();
   refreshDiscreteOutputs();
   Alarm.delay(ALARM_REFRESH_INTERVAL);
+  AT_001.refresh();
+  AT_002.refresh();
+
+ //. AT_001.serialize(tracePort,true);
   // doReadInputs();
   // doUpdateOutputs();
   // LSL_100.refresh();
@@ -1076,6 +1088,33 @@ modbusRegisters[HR_PY_001_OFP_CV] = PY_001.getCurrentOffDuration() / 1000;
 
 // formula from CO2 datasheet
 modbusRegisters[HR_AT_102] = (unsigned int ) AT_102MedianFilter.getMedian();
+
+
+bfconvert.val = AT_001.getSample();
+modbusRegisters[ HR_AT_001 ] = bfconvert.regsf[0];
+modbusRegisters[ HR_AT_001 + 1 ] = bfconvert.regsf[1];
+
+// EC
+bfconvert.val = AT_002.getSample();
+modbusRegisters[ HR_AT_002 ] = bfconvert.regsf[0];
+modbusRegisters[ HR_AT_002 + 1 ] = bfconvert.regsf[1];
+
+bfconvert.val = AT_002.getTDS();
+modbusRegisters[ HR_AT_002TDS ] = bfconvert.regsf[0];
+modbusRegisters[ HR_AT_002TDS + 1 ] = bfconvert.regsf[1];
+
+bfconvert.val = AT_002.getSalinity();
+modbusRegisters[ HR_AT_002SAL ] = bfconvert.regsf[0];
+modbusRegisters[ HR_AT_002SAL + 1 ] = bfconvert.regsf[1];
+
+bfconvert.val = AT_002.getSpecificGravity();
+modbusRegisters[ HR_AT_002SG ] = bfconvert.regsf[0];
+modbusRegisters[ HR_AT_002SG + 1 ] = bfconvert.regsf[1];
+
+
+
+
+
 
 }
 
@@ -1410,6 +1449,8 @@ void EEPROMLoadConfig()
 #define SERIALIZE_HEADER 'S'
 #define SERIALIZE_CIRCULATION_PUMP 'c'
 #define SERIALIZE_CIRCULATION_FAN 'f'
+#define SERIALIZE_PH 'p'
+#define SERIALIZE_EC 'e'
 void displayAlarm(char * who, struct _AlarmEntry aAlarmEntry)
 {
   char buffer[ STRLEN("HH:MM:SS")];
@@ -1623,6 +1664,8 @@ void showCommands()
   *tracePort << F("?? - Display commands") << endl;
   *tracePort << F("Sc - Serialize Circulation Pump") << endl;
   *tracePort << F("Sf - Serialize Fan") << endl;
+  *tracePort << F("Sp - Serialize pH") << endl;
+  *tracePort << F("Se - Serialize EC") << endl;
   *tracePort << F("C19999999 - Circulation Pump On Duration in s") << endl;
   *tracePort << F("CO9999999 - Circulation Pump Off Duration in s") << endl;  
   *tracePort << F("F19999999 - Fan On Duration in s") << endl;
@@ -1660,6 +1703,12 @@ void processSerializeMessage()
     case SERIALIZE_CIRCULATION_FAN:
       MY_101.serialize(tracePort, true);
       break;
+    case SERIALIZE_PH:
+      AT_001.serialize(tracePort, true);
+      break;
+    case SERIALIZE_EC:
+      AT_002.serialize(tracePort, true);
+      break;            
     case LIGHTS_DUTY_CYCLE:
     // plantStrip.setDutyCycle( tracePort->parseInt());
     break;
