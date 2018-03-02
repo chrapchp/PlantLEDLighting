@@ -1,3 +1,5 @@
+
+
 /**
 *  @file    planttestNG.ino
 *  @author  peter c
@@ -37,9 +39,9 @@
 #include <DA_AtlasEC.h>
 
 #include "PlantModbus.h"
-#define DEFAULT_LIGHTS_ON_ALARM_TIME AlarmHMS (5, 0, 0)
-#define DEFAULT_LIGHTS_OFF_ALARM_TIME AlarmHMS (23, 0, 0)
-#define DEFAULT_RESET_TIME AlarmHMS(0, 0, 0) // midnight
+#define DEFAULT_LIGHTS_ON_ALARM_TIME 1519992000 // AlarmHMS (5, 0, 0)
+#define DEFAULT_LIGHTS_OFF_ALARM_TIME 1520056800 // AlarmHMS (23, 0, 0)
+#define DEFAULT_RESET_TIME  1519974000 //AlarmHMS(0, 0, 0) // midnight
 #define DEFAULT_CIRCULATION_PUMP_ON_DURATION 15 * 60 // 15 min * 60 s
 #define DEFAULT_CIRCULATION_PUMP_OFF_DURATION 45 * 60 // 45 min * 60 s
 #define DEFAULT_FAN_ON_DURATION 30 * 60 // 30 min * 60 s
@@ -51,7 +53,7 @@
 // #define HOST_COMMAND_CHECK_INTERVAL  1000
 #define ALARM_REFRESH_INTERVAL 10
 
-const unsigned long DEFAULT_TIME = 976492800;
+const unsigned long DEFAULT_TIME = 1000188000;
 
 #define EEPROM_CONFIGURED 2 // this value stored at address CONFIG_FLAG_ADDR
 #define EEPROM_CONFIG_FLAG_ADDR 0 // is 0 if nothing was written
@@ -68,13 +70,15 @@ const unsigned long DEFAULT_TIME = 976492800;
 
 
 // comment out to not include terminal processing
-#define PROCESS_TERMINAL
+//#define PROCESS_TERMINAL
 //#define PROCESS_TERMINAL_VERBOSE
 HardwareSerial *tracePort = & Serial;
 // comment out to not implement modbus
-// #define PROCESS_MODBUS
+ #define PROCESS_MODBUS
 // refresh intervals
 #define POLL_CYCLE_SECONDS 5 // sonar and 1-wire refresh rate
+
+#define TEMPERATURE_COMPENSATE_CYCLE 60 // temperature compensate every 60s
 // flow meter
 #define FLOW_CALC_PERIOD_SECONDS 1 // flow rate calc period
 #define FT002_SENSOR_INTERUPT_PIN 2
@@ -106,8 +110,8 @@ RunningMedian AT_102MedianFilter = RunningMedian(5);
 // 
 #define PH_I2C_ADDRESS 100
 #define EC_I2C_ADDRESS 101
-DA_AtlasPH AT_001 = DA_AtlasPH( PH_I2C_ADDRESS);
-DA_AtlasEC AT_002 = DA_AtlasEC( EC_I2C_ADDRESS);
+DA_AtlasPH AT_001 = DA_AtlasPH( PH_DEFAULT_I2C_ADDRESS);
+DA_AtlasEC AT_002 = DA_AtlasEC( EC_DEFAULT_I2C_ADDRESS);
 
 /*
 Blue Serial IIC/I2C/TWI 2004 204 20X4 Character LCD Module Display For Arduino
@@ -222,19 +226,39 @@ Timezone usMT(usMDT, usMST);
 struct _AlarmEntry
 {
   time_t epoch;
-  AlarmId id = dtINVALID_ALARM_ID;
+  AlarmId id = dtINVALID_ALARM_ID;  
   bool firstTime = true;
+
 };
 
-typedef _AlarmEntry AlarmEntry;
-AlarmEntry growingChamberLightsOffEvent; // = { AlarmHMS(4, 0, 0), dtINVALID_ALARM_ID };
-AlarmEntry growingChamberLightsOnEvent; // = { AlarmHMS(11, 0, 0),  dtINVALID_ALARM_ID};
-AlarmEntry seedingAreaLightsOffEvent; // = { AlarmHMS(4, 0, 0), dtINVALID_ALARM_ID };
-AlarmEntry seedingAreaLightsOnEvent; // = { AlarmHMS(11, 0, 0),  dtINVALID_ALARM_ID};
+struct _lightControlEntry
+{
+  time_t onEpoch; //utc epoch
+  time_t offEpoch;  // utc epoch
 
+  void (*onLightsOn)(); 
+  void (*onLightsOff)(); 
+};
+
+
+
+
+
+typedef _lightControlEntry LightControlEntry;
+
+LightControlEntry growingChamberLights;
+LightControlEntry seedingAreaLights;
+
+
+typedef _AlarmEntry AlarmEntry;
 AlarmEntry onMidnight;
 AlarmEntry onRefreshAnalogs; // sonar and 1-wire read refresh
 AlarmEntry onFlowCalc; // flow calculations
+AlarmEntry onTemperatureCompensate; // atlas sensor temperature compensation
+
+
+
+
 void onFT_002_PulseIn()
 {
   FT_002.handleFlowDetection();
@@ -682,7 +706,7 @@ void displayLightStatuses(bool clearScreen)
   lcd << F("Timers  On     Off");
   lcd.setCursor(0, 1);
   lcd << "D102:";
-  time_t localAlarmTime = alarmTimeToLocal(seedingAreaLightsOnEvent.epoch);  
+  time_t localAlarmTime = alarmTimeToLocal(seedingAreaLights.onEpoch);  
   lcd.setCursor(5, 1);
   sprintf( sprintfBuf, "%02d:%02d", hour(localAlarmTime),minute(localAlarmTime) );
   lcd << sprintfBuf ;
@@ -690,7 +714,7 @@ void displayLightStatuses(bool clearScreen)
   lcd  << (isAM(localAlarmTime) == true ? "AM":"PM");
 
 
-  localAlarmTime = alarmTimeToLocal(seedingAreaLightsOffEvent.epoch);  
+  localAlarmTime = alarmTimeToLocal(seedingAreaLights.offEpoch);  
   lcd.setCursor(13, 1);
   sprintf( sprintfBuf, "%02d:%02d", hour(localAlarmTime),minute(localAlarmTime) );
   lcd << sprintfBuf ;
@@ -700,14 +724,14 @@ void displayLightStatuses(bool clearScreen)
 
   lcd.setCursor(0, 2);
   lcd << "D103:";
-  localAlarmTime = alarmTimeToLocal(growingChamberLightsOnEvent.epoch);  
+  localAlarmTime = alarmTimeToLocal(growingChamberLights.onEpoch);  
   lcd.setCursor(5, 2);
   sprintf( sprintfBuf, "%02d:%02d", hour(localAlarmTime),minute(localAlarmTime) );
   lcd << sprintfBuf ;
   lcd.setCursor(10, 2);
   lcd  << (isAM(localAlarmTime) == true ? "AM":"PM");
 
-  localAlarmTime = alarmTimeToLocal(growingChamberLightsOffEvent.epoch);  
+  localAlarmTime = alarmTimeToLocal(growingChamberLights.offEpoch);  
   lcd.setCursor(13, 2);
   sprintf( sprintfBuf, "%02d:%02d", hour(localAlarmTime),minute(localAlarmTime) );
   lcd << sprintfBuf ;
@@ -753,6 +777,26 @@ void setupLCDScreens()
   currentScreen = & firstScreen;
 }
 
+IO_TYPE currentIOType = i2c_ph;
+
+
+void onAtlasPhSample( IO_TYPE type, float value)
+{
+   // AT_001.serialize( tracePort, true);
+    currentIOType = i2c_ec;
+
+}
+
+
+void onAtlasECSample( IO_TYPE type, float value)
+{
+
+    //AT_002.serialize( tracePort, true);
+    currentIOType = i2c_ph;
+
+}
+
+
 void setup()
 {
 
@@ -774,6 +818,8 @@ void setup()
   // 
   onRefreshAnalogs.id = Alarm.timerRepeat(POLL_CYCLE_SECONDS, do_ONP_SPoll);
   onFlowCalc.id = Alarm.timerRepeat(FLOW_CALC_PERIOD_SECONDS, doOnCalcFlowRate);
+  onTemperatureCompensate.id = Alarm.timerRepeat(TEMPERATURE_COMPENSATE_CYCLE, doOnTemperatureCompensate);
+
   onMidnight.epoch = alarmTimeToUTC(DEFAULT_RESET_TIME);
   onMidnight.id = Alarm.alarmRepeat(onMidnight.epoch, doOnMidnight);
   if (isEEPROMConfigured() == EEPROM_CONFIGURED)
@@ -802,11 +848,19 @@ void setup()
   HS_003A.setOnEdgeEvent(& on_LCD_Next_Screen);
   HS_003B.setOnEdgeEvent(& on_LCD_Previous_Screen);
   HS_003C.setOnEdgeEvent(& on_LCD_Enter);
-  ;
+  
   HS_001AB.setOnStateChangeDetect(& on_Circulation_Pump_Process);
   // HS_101AB.setOnStateChangeDetect(& on_Fan_Process);
   HS_102AB.setOnStateChangeDetect(& on_SeedingAreaLED_Process);
   HS_103AB.setOnStateChangeDetect(& on_GrowingChamberLED_Process);
+
+  AT_001.setOnPollCallBack(onAtlasPhSample);
+  AT_002.setOnPollCallBack(onAtlasECSample);
+  AT_002.setPollingInterval(2000);
+
+  AT_001.setPollingInterval(3000);
+  AT_001.retrieveCompensatedTemperature();
+  AT_002.retrieveCompensatedTemperature();
 
 
   // 1-wire
@@ -821,6 +875,8 @@ void setup()
 
 
 }
+
+
 
 void loop()
 {
@@ -838,8 +894,12 @@ void loop()
   refreshDiscreteInputs();
   refreshDiscreteOutputs();
   Alarm.delay(ALARM_REFRESH_INTERVAL);
-  AT_001.refresh();
-  AT_002.refresh();
+
+
+  if( currentIOType == i2c_ph)
+    AT_001.refresh();
+  else
+    AT_002.refresh();
 
  //. AT_001.serialize(tracePort,true);
   // doReadInputs();
@@ -895,10 +955,71 @@ void doOnCalcFlowRate()
 
 }
 
+
+
+
+
+bool isTimeForLightsOn(time_t offEpoch, time_t onEpoch )
+{
+  int curTimeInMins = hour() * 60 + minute();
+  int offTimeInMins = hour(offEpoch) * 60 + minute(offEpoch);
+  int onTimeInMins = hour(onEpoch) * 60 + minute(onEpoch);
+  bool isOnEvent = false;
+  if (offTimeInMins < onTimeInMins)
+  {
+    if ((curTimeInMins >= onTimeInMins && curTimeInMins >= offTimeInMins) || (curTimeInMins <= onTimeInMins && curTimeInMins <= offTimeInMins))
+      isOnEvent = true;
+  }
+  else
+  {
+    if (curTimeInMins >= onTimeInMins && curTimeInMins <= offTimeInMins)
+      isOnEvent = true;
+  }
+
+  return(isOnEvent);
+}
+
+
+void doLightControl( struct _lightControlEntry* aLightControlEntry)
+{
+
+
+  if( isTimeForLightsOn(aLightControlEntry->offEpoch, aLightControlEntry->onEpoch))
+    aLightControlEntry->onLightsOn();
+  else
+    aLightControlEntry->onLightsOff();
+    
+}
+
+
+// alternate which sensor to compensate
+// 
+bool altenateProbe = false;
+void doOnTemperatureCompensate()
+{
+   if( altenateProbe ) 
+   {
+   currentIOType = i2c_ec;
+   AT_002.setCompensatedTemperature( TT_001T);
+ }
+ else
+ {
+     currentIOType = i2c_ph;
+   AT_001.setCompensatedTemperature( TT_001T);
+ }
+ altenateProbe = !altenateProbe;
+
+}
+
 // update sonar and 1-wire DHT-22 readings
 void do_ONP_SPoll()
 {
   float tLevel ;
+
+  doLightControl( &growingChamberLights);
+  doLightControl( &seedingAreaLights);
+
+
   unsigned int distanceCM = LT_002.ping() / US_ROUNDTRIP_CM - NUTRIENT_TANK_AIR_GAP;
   // compute distanace from high level mark
   tLevel = (NUTRIENT_TANK_MIXTURE_MAX - distanceCM) / NUTRIENT_TANK_MIXTURE_MAX; // NUTRIENT_TANK_MIXTURE_MAX;
@@ -942,7 +1063,7 @@ void doGrowingChamberLightsOn()
   //DY_103.activate(); // if disabled, it won't activate
 
 #ifdef PROCESS_TERMINAL
-  *tracePort << "...Growing Chamber Lights on" << endl;
+ // *tracePort << "...Growing Chamber Lights on" << endl;
 #endif
 
 }
@@ -953,7 +1074,7 @@ void doGrowingChamberLightsOff()
  // DY_103.reset();
 
 #ifdef PROCESS_TERMINAL
-  *tracePort << "...Growing Chamber Lights off" << endl;
+ // *tracePort << "...Growing Chamber Lights off" << endl;
 #endif
 
 }
@@ -965,7 +1086,7 @@ void doSeedingAreaLightsOn()
   //DY_103.activate(); // if disabled, it won't activate
 
 #ifdef PROCESS_TERMINAL
-  *tracePort << "...Seeding Lights on" << endl;
+ // *tracePort << "...Seeding Lights on" << endl;
 #endif
 
 }
@@ -976,29 +1097,34 @@ void doSeedingAreaLightsOff()
  // DY_103.reset();
 
 #ifdef PROCESS_TERMINAL
-  *tracePort << "...Seeding Lights off" << endl;
+ // *tracePort << "...Seeding Lights off" << endl;
 #endif
 
 }
 
 
-// timezone lib does not handle short 24 hr duration epochs
+// No-op
 time_t alarmTimeToUTC(time_t localAlarmTime)
 {
-  time_t utcAlarmTime = usMT.toUTC(localAlarmTime);
+  //time_t utcAlarmTime = usMT.toUTC(localAlarmTime);
+
+  /*
   if (usMT.utcIsDST(now()))
   {
     utcAlarmTime -= 60 * 60;
   }
   if (utcAlarmTime > SECS_PER_DAY)
     utcAlarmTime -= SECS_PER_DAY;
-  return(utcAlarmTime);
+    */
+  //*tracePort << "alarmTimeToUTC:localAlarmTime="  <<  localAlarmTime << " UTC=" << utcAlarmTime << endl;
+  return(localAlarmTime);
 }
 
 time_t alarmTimeToLocal(time_t utcAlarmTime)
 {
   TimeChangeRule * tcr; // pointer to the time change rule, use to get the TZ abbrev
   time_t localAlarmTime = usMT.toLocal(utcAlarmTime, & tcr);
+  /*
   int offset = tcr -> offset; // in minutes
   //if (usMT.utcIsDST(now()))
  // {
@@ -1013,6 +1139,7 @@ time_t alarmTimeToLocal(time_t utcAlarmTime)
 
     localAlarmTime = AlarmHMS(hr, minute(utcAlarmTime), second(utcAlarmTime));
   }
+  */
   return(localAlarmTime);
 }
 
@@ -1065,19 +1192,19 @@ modbusRegisters[HR_KY_002] = VERSION;
 
 
 
-blconvert.val = seedingAreaLightsOnEvent.epoch;
+blconvert.val = seedingAreaLights.onEpoch;
 modbusRegisters[ HR_DY_102_ONT_CV ] = blconvert.regsl[0];
 modbusRegisters[ HR_DY_102_ONT_CV + 1 ] = blconvert.regsl[1];
 
-blconvert.val = seedingAreaLightsOffEvent.epoch;
+blconvert.val = seedingAreaLights.offEpoch;
 modbusRegisters[ HR_DY_102_OFT_CV ] = blconvert.regsl[0];
 modbusRegisters[ HR_DY_102_OFT_CV + 1 ] = blconvert.regsl[1];
 
-blconvert.val = growingChamberLightsOnEvent.epoch;
+blconvert.val = growingChamberLights.onEpoch;
 modbusRegisters[ HR_DY_103_ONT_CV ] = blconvert.regsl[0];
 modbusRegisters[ HR_DY_103_ONT_CV + 1 ] = blconvert.regsl[1];
 
-blconvert.val = growingChamberLightsOffEvent.epoch;
+blconvert.val = growingChamberLights.offEpoch;
 modbusRegisters[ HR_DY_103_OFT_CV ] = blconvert.regsl[0];
 modbusRegisters[ HR_DY_103_OFT_CV + 1 ] = blconvert.regsl[1];
 
@@ -1086,13 +1213,18 @@ modbusRegisters[HR_MY_101_OFP_CV] = MY_101.getCurrentOffDuration() / 1000;
 modbusRegisters[HR_PY_001_ONP_CV] = PY_001.getCurrentOnDuration() / 1000;
 modbusRegisters[HR_PY_001_OFP_CV] = PY_001.getCurrentOffDuration() / 1000;
 
-// formula from CO2 datasheet
+// CO2
 modbusRegisters[HR_AT_102] = (unsigned int ) AT_102MedianFilter.getMedian();
 
-
+// pH
 bfconvert.val = AT_001.getSample();
 modbusRegisters[ HR_AT_001 ] = bfconvert.regsf[0];
 modbusRegisters[ HR_AT_001 + 1 ] = bfconvert.regsf[1];
+
+bfconvert.val = AT_001.getCompensatedTemperature();
+modbusRegisters[ HR_AT_001_TV ] = bfconvert.regsf[0];
+modbusRegisters[ HR_AT_001_TV + 1 ] = bfconvert.regsf[1];
+
 
 // EC
 bfconvert.val = AT_002.getSample();
@@ -1111,8 +1243,9 @@ bfconvert.val = AT_002.getSpecificGravity();
 modbusRegisters[ HR_AT_002SG ] = bfconvert.regsf[0];
 modbusRegisters[ HR_AT_002SG + 1 ] = bfconvert.regsf[1];
 
-
-
+bfconvert.val = AT_002.getCompensatedTemperature();
+modbusRegisters[ HR_AT_002_TV ] = bfconvert.regsf[0];
+modbusRegisters[ HR_AT_002_TV + 1 ] = bfconvert.regsf[1];
 
 
 
@@ -1141,10 +1274,8 @@ void setModbusGrowingChamberLightsOnTime()
   {
     blconvert.regsl[0] = modbusRegisters[HW_DY_103_ONT_SP];
     blconvert.regsl[1] = modbusRegisters[HW_DY_103_ONT_SP + 1];
-    growingChamberLightsOffEvent.epoch = alarmTimeToUTC(blconvert.val);
-    Alarm.free(growingChamberLightsOffEvent.id);
-    growingChamberLightsOffEvent.id = Alarm.alarmRepeat(growingChamberLightsOffEvent.epoch, doGrowingChamberLightsOn);
-    EEPROMWriteAlarmEntry(growingChamberLightsOffEvent.epoch, EEPROM_GROWING_CHAMBER_ON_TIME_ADDR);
+    growingChamberLights.onEpoch = alarmTimeToUTC(blconvert.val); 
+    EEPROMWriteAlarmEntry(growingChamberLights.onEpoch, EEPROM_GROWING_CHAMBER_ON_TIME_ADDR);
     modbusRegisters[HW_DY_103_ONT_SP] = 0;
     modbusRegisters[HW_DY_103_ONT_SP + 1] = 0;
   }
@@ -1156,10 +1287,8 @@ void setModbusGrowingChamberLightsOffTime()
   {
     blconvert.regsl[0] = modbusRegisters[HW_DY_103_OFT_SP];
     blconvert.regsl[1] = modbusRegisters[HW_DY_103_OFT_SP + 1];
-    growingChamberLightsOnEvent.epoch = alarmTimeToUTC(blconvert.val);
-    Alarm.free(growingChamberLightsOnEvent.id);
-    growingChamberLightsOnEvent.id = Alarm.alarmRepeat(growingChamberLightsOnEvent.epoch, doGrowingChamberLightsOff);
-    EEPROMWriteAlarmEntry(growingChamberLightsOnEvent.epoch, EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR);
+    growingChamberLights.offEpoch = alarmTimeToUTC(blconvert.val);
+    EEPROMWriteAlarmEntry(growingChamberLights.offEpoch, EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR);
     modbusRegisters[HW_DY_103_OFT_SP] = 0;
     modbusRegisters[HW_DY_103_OFT_SP + 1] = 0;
   }
@@ -1171,10 +1300,8 @@ void setModbusSeedingAreaLightsOnTime()
   {
     blconvert.regsl[0] = modbusRegisters[HW_DY_102_ONT_SP];
     blconvert.regsl[1] = modbusRegisters[HW_DY_102_ONT_SP + 1];
-    seedingAreaLightsOnEvent.epoch = alarmTimeToUTC(blconvert.val);
-    Alarm.free(seedingAreaLightsOnEvent.id);
-    seedingAreaLightsOnEvent.id = Alarm.alarmRepeat(seedingAreaLightsOnEvent.epoch, doSeedingAreaLightsOn);
-    EEPROMWriteAlarmEntry(seedingAreaLightsOnEvent.epoch, EEPROM_SEEDING_AREA_ON_TIME_ADDR);
+    seedingAreaLights.onEpoch = alarmTimeToUTC(blconvert.val);
+    EEPROMWriteAlarmEntry(seedingAreaLights.onEpoch, EEPROM_SEEDING_AREA_ON_TIME_ADDR);
     modbusRegisters[HW_DY_102_ONT_SP] = 0;
     modbusRegisters[HW_DY_102_ONT_SP + 1] = 0;
   }
@@ -1188,10 +1315,9 @@ void setModbusSeedingAreaLightsOffTime()
   {
     blconvert.regsl[0] = modbusRegisters[HW_DY_102_OFT_SP];
     blconvert.regsl[1] = modbusRegisters[HW_DY_102_OFT_SP + 1];
-    seedingAreaLightsOffEvent.epoch = alarmTimeToUTC(blconvert.val);
-    Alarm.free(seedingAreaLightsOffEvent.id);
-    seedingAreaLightsOffEvent.id = Alarm.alarmRepeat(seedingAreaLightsOffEvent.epoch, doSeedingAreaLightsOff);
-    EEPROMWriteAlarmEntry(seedingAreaLightsOffEvent.epoch, EEPROM_SEEDING_AREA_OFF_TIME_ADDR);
+
+    seedingAreaLights.offEpoch = alarmTimeToUTC(blconvert.val); 
+    EEPROMWriteAlarmEntry(seedingAreaLights.offEpoch, EEPROM_SEEDING_AREA_OFF_TIME_ADDR);
     modbusRegisters[HW_DY_102_OFT_SP] = 0;
     modbusRegisters[HW_DY_102_OFT_SP + 1] = 0;
   }
@@ -1301,6 +1427,9 @@ void setConfigToDefaults()
   }
 }
 
+
+
+
 bool getModbusCoilValue(unsigned short startAddress, unsigned short bitPos)
 {
   return(bitRead(modbusRegisters[startAddress + (int) (bitPos / 16)], bitPos % 16));
@@ -1310,6 +1439,107 @@ void writeModbusCoil(unsigned short startAddress, unsigned short bitPos, bool va
 {
   bitWrite(modbusRegisters[startAddress + (int) (bitPos / 16)], bitPos % 16, value);
 }
+
+
+
+void processModbusECCommands()
+{
+  bool status;
+  // calibrate low command
+  if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_CL))
+  {
+    status = AT_002.calibrateLow();
+    modbusRegisters[HR_AT_002_CS] = AT_002.getProbeCommandStatus();
+    writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_CL, false);
+  }
+  else
+    if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_CH))
+    {
+      status = AT_002.calibrateHigh();
+      modbusRegisters[HR_AT_002_CS] = AT_002.getProbeCommandStatus();
+      writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_CH, false);
+    }
+  else
+    if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_CD))
+    {
+      status = AT_002.calibrateDry();
+      modbusRegisters[HR_AT_002_CS] = AT_002.getProbeCommandStatus();
+      writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_CD, false);
+    }
+  else
+    if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_CR))
+    {
+      status = AT_002.calibrateClear();
+      modbusRegisters[HR_AT_002_CS] = AT_002.getProbeCommandStatus();
+      writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_CR, false);
+    }
+  else
+    if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_CQ))
+    {
+      int calCount = AT_002.calibrateQuery();
+      modbusRegisters[HR_AT_002_CS] = AT_002.getProbeCommandStatus();
+      modbusRegisters[HR_AT_002_CC] = calCount;
+      writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_CQ, false);
+    }
+  else
+    if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_TC))
+    {
+      currentIOType = i2c_ec;
+      AT_002.setCompensatedTemperature( TT_001T);
+      writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_002_TC, false);
+    }    
+
+}
+
+void processModbusPHCommands()
+{
+  bool status;
+  // calibrate low command
+  if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_CL))
+  {
+    status = AT_001.calibrateLow();
+    modbusRegisters[HR_AT_001_CS] = AT_001.getProbeCommandStatus();
+    writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_CL, false);
+  }
+  else
+    if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_CH))
+    {
+      status = AT_001.calibrateHigh();
+      modbusRegisters[HR_AT_001_CS] = AT_001.getProbeCommandStatus();
+      writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_CH, false);
+    }
+  else
+    if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_CM))
+    {
+      status = AT_001.calibrateMid();
+      modbusRegisters[HR_AT_001_CS] = AT_001.getProbeCommandStatus();
+      writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_CM, false);
+    }
+  else
+    if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_CR))
+    {
+      status = AT_001.calibrateClear();
+      modbusRegisters[HR_AT_001_CS] = AT_001.getProbeCommandStatus();
+      writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_CR, false);
+    }
+  else
+    if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_CQ))
+    {
+      int calCount = AT_001.calibrateQuery();
+      modbusRegisters[HR_AT_001_CS] = AT_001.getProbeCommandStatus();
+      modbusRegisters[HR_AT_001_CC] = calCount;
+      writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_CQ, false);
+    }
+  else
+    if (getModbusCoilValue(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_TC))
+    {
+      currentIOType = i2c_ec;
+      AT_001.setCompensatedTemperature( TT_001T);
+      writeModbusCoil(COIL_STATUS_READ_WRITE_OFFSET, CW_AT_001_TC, false);
+    }    
+
+}
+
 
 void processModbusCommands()
 {
@@ -1331,6 +1561,9 @@ void processModbusCommands()
   setModbusForceGrowingChamberLightsOff();
   setModbusForceSeedingAreaLightsOn();  
   setModbusForceSeedingAreaLightsOff();
+  // atlas sensors
+  processModbusPHCommands();
+  processModbusECCommands();
 }
 
 /*
@@ -1392,21 +1625,17 @@ unsigned int isEEPROMConfigured()
 
 void EEPROMLoadConfig()
 {
-  growingChamberLightsOffEvent.epoch = EEPROMReadAlarmEntry(EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR);
-  Alarm.free(growingChamberLightsOffEvent.id);
-  growingChamberLightsOffEvent.id = Alarm.alarmRepeat(growingChamberLightsOffEvent.epoch, doGrowingChamberLightsOff);
+  growingChamberLights.offEpoch = EEPROMReadAlarmEntry(EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR);
+  growingChamberLights.onLightsOff =  doGrowingChamberLightsOff;
 
-  growingChamberLightsOnEvent.epoch = EEPROMReadAlarmEntry(EEPROM_GROWING_CHAMBER_ON_TIME_ADDR);
-  Alarm.free(growingChamberLightsOnEvent.id);
-  growingChamberLightsOnEvent.id = Alarm.alarmRepeat(growingChamberLightsOnEvent.epoch, doGrowingChamberLightsOn);
+  growingChamberLights.onEpoch = EEPROMReadAlarmEntry(EEPROM_GROWING_CHAMBER_ON_TIME_ADDR);
+  growingChamberLights.onLightsOn =  doGrowingChamberLightsOn;
 
-  seedingAreaLightsOffEvent.epoch = EEPROMReadAlarmEntry(EEPROM_SEEDING_AREA_OFF_TIME_ADDR);
-  Alarm.free(seedingAreaLightsOffEvent.id);
-  seedingAreaLightsOffEvent.id = Alarm.alarmRepeat(seedingAreaLightsOffEvent.epoch, doSeedingAreaLightsOff);
+  seedingAreaLights.offEpoch = EEPROMReadAlarmEntry(EEPROM_SEEDING_AREA_OFF_TIME_ADDR);
+  seedingAreaLights.onLightsOff = doSeedingAreaLightsOff;
 
-  seedingAreaLightsOnEvent.epoch = EEPROMReadAlarmEntry(EEPROM_SEEDING_AREA_ON_TIME_ADDR);
-  Alarm.free(seedingAreaLightsOnEvent.id);
-  seedingAreaLightsOnEvent.id = Alarm.alarmRepeat(seedingAreaLightsOnEvent.epoch, doSeedingAreaLightsOn);
+  seedingAreaLights.onEpoch = EEPROMReadAlarmEntry(EEPROM_SEEDING_AREA_ON_TIME_ADDR);
+  seedingAreaLights.onLightsOn = doSeedingAreaLightsOn;
 
   PY_001.setOnDuration( EEPROMReadDuration( EEPROM_CIRCULATION_PUMP_ON_DURATION_ADDR) ) ; 
   PY_001.setOffDuration( EEPROMReadDuration( EEPROM_CIRCULATION_PUMP_OFF_DURATION_ADDR) ) ;
@@ -1435,6 +1664,10 @@ void EEPROMLoadConfig()
 #define LIGHTS_OFF '0' // Turn lights off L0
 #define CIRCULATION_PUMP_HEADER 'C' // Light Header tag
 #define FAN_HEADER 'F' // Light Header tag
+#define TEMPERATURE_COMPENSATE_HEADER 'E' // Atlas Sensor Tempearture Compensate
+#define CALIBRATE_EC_HEADER 'Y'
+#define CALIBRATE_PH_HEADER 'Z'
+
 
 #define LIGHTS_ON '1' // Turn lights on L1
 #define LIGHTS_OFF '0' // Turn lights off L0
@@ -1451,6 +1684,16 @@ void EEPROMLoadConfig()
 #define SERIALIZE_CIRCULATION_FAN 'f'
 #define SERIALIZE_PH 'p'
 #define SERIALIZE_EC 'e'
+
+#define CALIBRATE_LOW 'l'  // EC, pH
+#define CALIBRATE_MID 'm'  // pH
+#define CALIBRATE_HIGH 'h' // EC, pH
+#define CALIBRATE_DRY  'd' // EC 
+#define CALIBRATE_CLEAR  'c' // EC,pH
+#define CALIBRATE_QUERY  'q' // EC,pH
+
+
+
 void displayAlarm(char * who, struct _AlarmEntry aAlarmEntry)
 {
   char buffer[ STRLEN("HH:MM:SS")];
@@ -1461,6 +1704,22 @@ void displayAlarm(char * who, struct _AlarmEntry aAlarmEntry)
 
   
   time_t localAlarmTime = alarmTimeToLocal(aAlarmEntry.epoch);
+  timeToBuffer( localAlarmTime, buffer );
+   *tracePort << " Local:" << buffer << " epoch:" << localAlarmTime << endl;
+
+}
+
+
+void displayLightControlEntry(char *who, time_t anEpoch)
+{
+  char buffer[ STRLEN("HH:MM:SS")];
+
+  timeToBuffer( anEpoch , buffer );
+
+  *tracePort << who <<  " UTC:" << buffer << " epoch:" << anEpoch;
+
+  
+  time_t localAlarmTime = alarmTimeToLocal(anEpoch);
   timeToBuffer( localAlarmTime, buffer );
    *tracePort << " Local:" << buffer << " epoch:" << localAlarmTime << endl;
 
@@ -1508,10 +1767,10 @@ void processDisplayMessage()
     if (c == DISPLAY_ALARMS)
     {
       *tracePort << endl;
-      displayAlarm("...GC Off", growingChamberLightsOffEvent);
-      displayAlarm("...GC On", growingChamberLightsOnEvent);
-      displayAlarm("...SA On", seedingAreaLightsOnEvent);
-      displayAlarm("...SA Off", seedingAreaLightsOffEvent);
+      displayLightControlEntry("...GC Off", growingChamberLights.offEpoch);
+      displayLightControlEntry("...GC On", growingChamberLights.onEpoch);
+      displayLightControlEntry("...SA Off", seedingAreaLights.offEpoch);
+      displayLightControlEntry("...SA On", seedingAreaLights.onEpoch);
       displayAlarm("...Reset Midnight", onMidnight);
       // *tracePort << "Duty Cycle Period = " << dutyCycleChangeAlarm.epoch << " s id=" << dutyCycleChangeAlarm.id << endl;
     }
@@ -1565,20 +1824,38 @@ void processAlarmEntryMessage( struct _AlarmEntry* aAlarmEntry, unsigned int eep
 
 }
 
+
+void processLightEntryMessage( time_t *anEpoch, unsigned int eepromAddr )
+{
+    //Alarm.free(aAlarmEntry->id);
+    //unsigned int shour = tracePort -> parseInt(); 
+    //unsigned int sminute = tracePort -> parseInt(); 
+    //unsigned int ssecond = tracePort -> parseInt(); 
+    time_t localAlarmTime = tracePort->parseInt();
+
+    //*anEpoch = alarmTimeToUTC(AlarmHMS(shour, sminute, ssecond));
+    *anEpoch = alarmTimeToUTC(localAlarmTime);
+   
+    //Serial << "alarm epoch " << aAlarmEntry->epoch << " alarm ID " << aAlarmEntry->id <<endl;
+    EEPROMWriteAlarmEntry(*anEpoch, eepromAddr);
+
+}
+
+
 void processGCAlarmMessage()
 {
   char c = tracePort -> read();
   if (c == TIMER_ALARM_OFF)
   {
-    processAlarmEntryMessage( &growingChamberLightsOffEvent, EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR,doGrowingChamberLightsOff );
-    displayAlarm("GC OFF", growingChamberLightsOffEvent );
+    processLightEntryMessage( &growingChamberLights.offEpoch, EEPROM_GROWING_CHAMBER_OFF_TIME_ADDR );
+    displayLightControlEntry("GC OFF", growingChamberLights.offEpoch );
   
   }
   else
     if (c == TIMER_ALARM_ON)
     {
-      processAlarmEntryMessage( &growingChamberLightsOnEvent, EEPROM_GROWING_CHAMBER_ON_TIME_ADDR,doGrowingChamberLightsOn );
-      displayAlarm("GC On", growingChamberLightsOnEvent);
+      processLightEntryMessage( &growingChamberLights.onEpoch, EEPROM_GROWING_CHAMBER_ON_TIME_ADDR );    
+      displayLightControlEntry("GC On", growingChamberLights.onEpoch);
     }
 }
 
@@ -1587,15 +1864,15 @@ void processSAAlarmMessage()
   char c = tracePort -> read();
    if (c == TIMER_ALARM_OFF)
   {
-    processAlarmEntryMessage( &seedingAreaLightsOffEvent, EEPROM_SEEDING_AREA_OFF_TIME_ADDR,doSeedingAreaLightsOff );
-    displayAlarm("SA OFF", seedingAreaLightsOffEvent );
+    processLightEntryMessage( &seedingAreaLights.offEpoch, EEPROM_SEEDING_AREA_OFF_TIME_ADDR );
+    displayLightControlEntry("SA OFF", seedingAreaLights.offEpoch );
   
   }
   else
     if (c == TIMER_ALARM_ON)
     {
-      processAlarmEntryMessage( &seedingAreaLightsOnEvent, EEPROM_SEEDING_AREA_ON_TIME_ADDR,doSeedingAreaLightsOn );
-    displayAlarm("SA ON", seedingAreaLightsOnEvent );
+      processLightEntryMessage( &seedingAreaLights.onEpoch, EEPROM_SEEDING_AREA_ON_TIME_ADDR );
+      displayLightControlEntry("SA ON", seedingAreaLights.onEpoch );
     }
 }
 
@@ -1666,6 +1943,18 @@ void showCommands()
   *tracePort << F("Sf - Serialize Fan") << endl;
   *tracePort << F("Sp - Serialize pH") << endl;
   *tracePort << F("Se - Serialize EC") << endl;
+  *tracePort << F("Ep99.99 - Temperature Compensate pH") << endl;
+  *tracePort << F("Zl  - Calibrate pH Low") << endl;  
+  *tracePort << F("Zm - Calibrate pH mid") << endl;    
+  *tracePort << F("Zh - Calibrate pH High") << endl;    
+  *tracePort << F("Zc - Clear pH Calibration") << endl;    
+  *tracePort << F("Zq - Return calibration state (0=none, 1=1point, 2=2 point, 3=3point") << endl;     
+  *tracePort << F("Ee99.99 - Temperature Compensate EC") << endl;  
+  *tracePort << F("Yl - Calibrate EC Low") << endl;  
+  *tracePort << F("Yh - Calibrate EC High") << endl;  
+  *tracePort << F("Yd - Calibrate EC Dry") << endl;    
+  *tracePort << F("Yc - Clear EC Calibration") << endl;    
+  *tracePort << F("Yq - Return calibration state (0=none, 1=1point, 2=2 point") << endl;     
   *tracePort << F("C19999999 - Circulation Pump On Duration in s") << endl;
   *tracePort << F("CO9999999 - Circulation Pump Off Duration in s") << endl;  
   *tracePort << F("F19999999 - Fan On Duration in s") << endl;
@@ -1715,6 +2004,83 @@ void processSerializeMessage()
     default:
       break;
   }
+}
+
+
+
+void processTemperatureCompensation()
+{
+  char c = tracePort -> read();
+  float temperature;
+  temperature = tracePort->parseFloat();
+   if (c == SERIALIZE_PH)
+    {
+     // AT_002.pause();
+      currentIOType = i2c_ph;
+      AT_001.setCompensatedTemperature( temperature);
+   }
+  else
+  {
+      //AT_001.pause();
+      currentIOType = i2c_ec;
+      AT_002.setCompensatedTemperature( temperature);
+  }
+}
+
+
+void processCalibrateMessage( IO_TYPE aIO_Type)
+{
+    char calCmd = tracePort -> read();
+
+    switch( calCmd)
+    {
+      case CALIBRATE_LOW:
+      if( aIO_Type == i2c_ec)
+          *tracePort << "EC Cal Low:" << AT_002.calibrateLow() << endl;
+        else
+          *tracePort << "pH Cal Low:" << AT_001.calibrateLow() << endl;
+      break;
+
+      case CALIBRATE_MID:
+      if( aIO_Type == i2c_ec)
+          *tracePort << "EC Cal Mid does not exist:" << endl;
+        else
+          *tracePort << "pH Cal Mid:" << AT_001.calibrateMid() <<  endl;
+      break;
+      case CALIBRATE_HIGH:
+            if( aIO_Type == i2c_ec)
+          *tracePort << "EC Cal High:" << AT_002.calibrateHigh() << endl;
+        else
+          *tracePort << "pH Cal High:" << AT_001.calibrateHigh() << endl;
+
+      break;
+      case CALIBRATE_DRY:
+       if( aIO_Type == i2c_ec)
+          *tracePort << "EC Cal Dry:" << AT_002.calibrateDry() << endl;
+        else
+          *tracePort << "pH Cal Dry does not exist." <<  endl;
+      break;
+      case CALIBRATE_CLEAR:
+      if( aIO_Type == i2c_ec)
+          *tracePort << "EC Cal Clear:" << AT_002.calibrateClear() << endl;
+        else
+          *tracePort << "pH Cal Clear:" << AT_001.calibrateClear() << endl;
+      break;
+      break;
+      case CALIBRATE_QUERY:
+        if( aIO_Type == i2c_ec)
+          *tracePort << "EC Points Calibrated:" << AT_002.calibrateQuery() << endl;
+        else
+          *tracePort << "pH Points Calibrated:" << AT_001.calibrateQuery() << endl;
+      break;
+      default:
+        *tracePort << "Invalid command" << endl;
+      break;
+    }
+
+
+
+
 }
 
 void processTerminalCommands()
@@ -1773,7 +2139,16 @@ void processTerminalCommands()
       if (c == FAN_HEADER)
       {
         processFanDurations();
-      }      
+      }
+    else
+      if (c == CALIBRATE_EC_HEADER)
+        processCalibrateMessage(i2c_ec);
+    else
+      if (c == CALIBRATE_PH_HEADER)
+        processCalibrateMessage(i2c_ph);
+    else
+      if (c == TEMPERATURE_COMPENSATE_HEADER)
+        processTemperatureCompensation();
   }
 }
 

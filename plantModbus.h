@@ -20,8 +20,8 @@
 #define COIL_STATUS_READ_WRITE_OFFSET 0
 #define COIL_STATUS_WRITE_START_BIT	(16*5)  // 80 coils/bits for reads then followed by write memory for coils
 
-#define HOLDING_REGISTER_READ_OFFSET 10		// start read holding regisers
-#define HOLDING_REGISTER_WRITE_OFFSET 30
+//#define HOLDING_REGISTER_READ_OFFSET 10		// start read holding regisers
+//#define HOLDING_REGISTER_WRITE_OFFSET 30
 #define MODBUS_REG_COUNT 80
 
 #define CS_HS_001   0        // Drain Pump Hand status : Start/Stop
@@ -45,6 +45,19 @@
 #define CW_MY_101   91        // Fan, 60 on/60 off 120VAC
 
 
+//Altas commands
+#define CW_AT_002_CL   92        // EC Calibrate Low
+#define CW_AT_002_CD   93        // EC Calibrate Dry
+#define CW_AT_002_CH   94        // EC Calibrate High
+#define CW_AT_002_CR   95        // EC Calibrate Clear
+#define CW_AT_002_CQ   96        // EC Calibrate Query
+#define CW_AT_002_TC   97        // EC Temperature Compensate
+#define CW_AT_001_CL   98        // pH Calibrate Low
+#define CW_AT_001_CM   99        // pH Calibrate Mid
+#define CW_AT_001_CH   100        // pH Calibrate High
+#define CW_AT_001_CR   101        // pH Calibrate Clear
+#define CW_AT_001_CQ   102        // pH Calibrate Query
+#define CW_AT_001_TC   103        // pH Temperature Compensate
 
 
 #define HR_AT_101   10        // Ambient relative humidity
@@ -86,6 +99,14 @@
 #define HR_AT_002SAL       64        // Nutrient Salinity
 #define HR_AT_002SG        66        // Nutrient Specific Gravity
 
+#define HR_AT_002_CS   67        // EC Calibrate Command Status
+#define HR_AT_002_PS   68        // EC Calibrate Poll  Status
+#define HR_AT_002_CC   69        // EC Calibrate Calibrated Count
+#define HR_AT_002_TV   70        // EC Temperature Compensation Value
+#define HR_AT_001_CS   72        // pH Calibrate Command Status
+#define HR_AT_001_PS   73        // pH Calibrate Poll  Status
+#define HR_AT_001_CC   74        // pH Calibrate Calibrated Count
+#define HR_AT_001_TV   76        // pH Temperature Compensation Value
 
 
 
