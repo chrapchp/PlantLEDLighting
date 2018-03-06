@@ -1,5 +1,3 @@
-
-
 /**
 *  @file    planttestNG.ino
 *  @author  peter c
@@ -958,10 +956,9 @@ void doOnCalcFlowRate()
 
 
 
-
-bool isTimeForLightsOn(time_t offEpoch, time_t onEpoch )
+bool isTimeForLightsOn(time_t currentEpoch, time_t offEpoch, time_t onEpoch )
 {
-  int curTimeInMins = hour() * 60 + minute();
+  int curTimeInMins = hour(currentEpoch) * 60 + minute(currentEpoch);
   int offTimeInMins = hour(offEpoch) * 60 + minute(offEpoch);
   int onTimeInMins = hour(onEpoch) * 60 + minute(onEpoch);
   bool isOnEvent = false;
@@ -984,7 +981,7 @@ void doLightControl( struct _lightControlEntry* aLightControlEntry)
 {
 
 
-  if( isTimeForLightsOn(aLightControlEntry->offEpoch, aLightControlEntry->onEpoch))
+  if( isTimeForLightsOn(alarmTimeToUTC(now()), alarmTimeToUTC(aLightControlEntry->offEpoch), alarmTimeToUTC(aLightControlEntry->onEpoch)))
     aLightControlEntry->onLightsOn();
   else
     aLightControlEntry->onLightsOff();
